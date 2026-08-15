@@ -71,10 +71,27 @@ async function create(){
 }
 async function join(){
  try{
-  hideErr();me=$("joinName").value.trim();if(!me)throw new Error("Enter your name.");
-  role=$("joinRole").value;localStorage.setItem("turfdraft:"+room,JSON.stringify({me,role}));
-  await load();admin=false;await subscribe();showDraft();
- }catch(e){$("joinInfo").textContent="Room not found or unavailable.";console.error(e)}
+  hideErr();
+  me=$("joinName").value.trim();
+  if(!me)throw new Error("Enter your name.");
+  role=$("joinRole").value;
+  localStorage.setItem("turfdraft:"+room,JSON.stringify({me,role}));
+  await load();
+  showDraft();
+  try{
+   await subscribe();
+  }catch(realtimeError){
+   console.error("Realtime connection:",realtimeError);
+   $("connection").textContent="● Realtime offline";
+   $("error").textContent="Tournament loaded. Live updates are currently unavailable: "+(realtimeError?.message||String(realtimeError));
+   $("error").classList.remove("hidden");
+  }
+ }catch(e){
+  console.error("Join/load error:",e);
+  $("joinInfo").textContent="Could not load this tournament.";
+  $("error").textContent=e?.message||e?.error_description||e?.details||String(e);
+  $("error").classList.remove("hidden");
+ }
 }
 async function pick(playerId){
  try{
@@ -124,13 +141,22 @@ $("create").onclick=create;$("joinBtn").onclick=join;$("copy").onclick=()=>navig
 
 (async()=>{
  if(room){
-  $("setup").classList.add("hidden");$("join").classList.remove("hidden");
-  const s=JSON.parse(localStorage.getItem("turfdraft:"+room)||"null");if(s){$("joinName").value=s.me||"";role=s.role||"spectator"}
+  $("setup").classList.add("hidden");
+  $("join").classList.remove("hidden");
+  const s=JSON.parse(localStorage.getItem("turfdraft:"+room)||"null");
+  if(s)$("joinName").value=s.me||"";
   try{
    await load();
-   $("joinInfo").textContent=`${tournament.name} • ${teams.length} teams • ${players.length} players`;
-   $("joinRole").innerHTML='<option value="spectator">Player / Spectator</option>'+teams.map(t=>`<option value="captain">${esc(t.captain)} — ${esc(t.name)}</option>`).join("");
-  }catch(e){$("joinInfo").textContent="This room does not exist yet.";console.error(e)}
+   $("joinInfo").textContent=`${tournament.name} • ${teams.length} teams • ${players.length} players • Room ${room}`;
+   $("joinRole").innerHTML='<option value="spectator">Player / Spectator</option>'+
+     teams.map(t=>`<option value="captain">${esc(t.captain)} — ${esc(t.name)}</option>`).join("");
+   $("joinRole").value=s?.role||"spectator";
+  }catch(e){
+   console.error("Room load error:",e);
+   $("joinInfo").textContent="This room could not be loaded.";
+   $("error").textContent=e?.message||e?.error_description||e?.details||String(e);
+   $("error").classList.remove("hidden");
+  }
  }
 })();
 
