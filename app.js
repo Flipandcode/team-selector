@@ -14,7 +14,16 @@ function err(e){
  $("error").classList.remove("hidden");
 }
 function hideErr(){$("error").classList.add("hidden")}
-function turnTeam(){return teams.length?teams[(tournament.pick_count||0)%teams.length]:null}
+function turnTeam(){
+ const picked=players.filter(p=>p.picked_by_team).length;
+ return teams.length?teams[picked%teams.length]:null;
+}
+function myCaptainTeam(){
+ return teams.find(t=>t.captain.trim().toLowerCase()===me.trim().toLowerCase())||null;
+}
+function isAdminCaptain(){
+ return !!teams.length && teams[0].captain.trim().toLowerCase()===me.trim().toLowerCase();
+}
 function capacities(){
  const n=players.length, k=teams.length;
  return teams.map((_,i)=>Math.floor(n/k)+(i<n%k?1:0));
@@ -74,9 +83,9 @@ async function join(){
   hideErr();
   me=$("joinName").value.trim();
   if(!me)throw new Error("Enter your name.");
-  role=$("joinRole").value;
-  localStorage.setItem("turfdraft:"+room,JSON.stringify({me,role}));
   await load();
+  role=myCaptainTeam()?"captain":"spectator";
+  localStorage.setItem("turfdraft:"+room,JSON.stringify({me,role}));
   showDraft();
   try{
    await subscribe();
@@ -95,34 +104,65 @@ async function join(){
 }
 async function pick(playerId){
  try{
-  const t=turnTeam();if(!t||t.captain.toLowerCase()!==me.toLowerCase()||tournament.status==="complete")return;
+  await load();
+  const t=turnTeam();
+  const myTeam=myCaptainTeam();
+  if(!t)throw new Error("No team is available to pick.");
+  if(!myTeam)throw new Error("You are not a registered captain for this tournament.");
+  if(t.id!==myTeam.id)throw new Error(`It is ${t.captain}'s turn. Please wait for the other captain.`);
+  if(tournament.status==="complete")return;
   const picked=players.filter(p=>p.picked_by_team).length;
   const cap=capacities()[t.draft_order];
-  if(players.filter(p=>p.picked_by_team===t.id).length>=cap)return;
-  const {error:e}=await sb.from("draft_picks").insert({tournament_id:tournament.id,player_id:playerId,team_id:t.id,pick_number:picked});
+  if(players.filter(p=>p.picked_by_team===t.id).length>=cap)throw new Error("Your team has reached its player limit.");
+  const target=players.find(p=>p.id===playerId && !p.picked_by_team);
+  if(!target)throw new Error("That player has already been selected.");
+  const {error:e}=await sb.from("draft_picks").insert({
+    tournament_id:tournament.id,player_id:target.id,team_id:t.id,pick_number:picked
+  });
   if(e)throw e;
-  const {error:u}=await sb.from("players").update({picked_by_team:t.id,pick_number:picked}).eq("id",playerId).is("picked_by_team",null);
+  const {data:updated,error:u}=await sb.from("players")
+    .update({picked_by_team:t.id,pick_number:picked})
+    .eq("id",target.id).is("picked_by_team",null).select().single();
   if(u)throw u;
-  if(picked+1===players.length)await sb.from("tournaments").update({status:"complete"}).eq("id",tournament.id);
+  if(!updated)throw new Error("This player was just selected by another captain. Please refresh.");
+  if(picked+1===players.length)
+    await sb.from("tournaments").update({status:"complete"}).eq("id",tournament.id);
   await load();
  }catch(e){err(e)}
 }
 async function undo(){
  try{
-  if(!admin)return;
-  const {data:picks,error:e}=await sb.from("draft_picks").select("*").eq("tournament_id",tournament.id).order("pick_number",{ascending:false}).limit(1);
-  if(e)throw e;if(!picks.length)return;
+  await load();
+  if(!isAdminCaptain())throw new Error("Only the tournament creator captain can undo.");
+  const {data:picks,error:e}=await sb.from("draft_picks").select("*")
+    .eq("tournament_id",tournament.id).order("pick_number",{ascending:false}).limit(1);
+  if(e)throw e;
+  if(!picks.length)return;
   const p=picks[0];
-  await sb.from("players").update({picked_by_team:null,pick_number:null}).eq("id",p.player_id);
-  await sb.from("draft_picks").delete().eq("id",p.id);
-  await sb.from("tournaments").update({status:"drafting"}).eq("id",tournament.id);await load();
+  const {error:pe}=await sb.from("players").update({picked_by_team:null,pick_number:null})
+    .eq("id",p.player_id);
+  if(pe)throw pe;
+  const {error:de}=await sb.from("draft_picks").delete().eq("id",p.id);
+  if(de)throw de;
+  const {error:te}=await sb.from("tournaments").update({status:"drafting"}).eq("id",tournament.id);
+  if(te)throw te;
+  await load();
  }catch(e){err(e)}
 }
 async function reset(){
- if(!admin||!confirm("Reset all picks?"))return;
- await sb.from("players").update({picked_by_team:null,pick_number:null}).eq("tournament_id",tournament.id);
- await sb.from("draft_picks").delete().eq("tournament_id",tournament.id);
- await sb.from("tournaments").update({status:"drafting"}).eq("id",tournament.id);await load();
+ try{
+  await load();
+  if(!isAdminCaptain())throw new Error("Only the tournament creator captain can reset.");
+  if(!confirm("Reset all picks?"))return;
+  const {error:p}=await sb.from("players").update({picked_by_team:null,pick_number:null})
+    .eq("tournament_id",tournament.id);
+  if(p)throw p;
+  const {error:d}=await sb.from("draft_picks").delete().eq("tournament_id",tournament.id);
+  if(d)throw d;
+  const {error:t}=await sb.from("tournaments").update({status:"drafting"}).eq("id",tournament.id);
+  if(t)throw t;
+  await load();
+ }catch(e){err(e)}
 }
 function render(){
  $("title").textContent="🏆 "+tournament.name;
@@ -131,10 +171,16 @@ function render(){
  const t=turnTeam();
  $("status").textContent=tournament.status==="complete"?"🎉 Draft complete":`🎯 ${t?.captain} — ${t?.name} picks now`;
  $("left").textContent=`(${players.length-picked} left)`;
- const can=t&&role==="captain"&&t.captain.toLowerCase()===me.toLowerCase()&&tournament.status!=="complete";
+ const myTeam=myCaptainTeam();
+ const can=!!t&&!!myTeam&&t.id===myTeam.id&&tournament.status!=="complete";
  $("available").innerHTML=players.filter(p=>!p.picked_by_team).map(p=>`<div class="player"><span>${esc(p.name)}</span><button class="pick" ${can?"":"disabled"} data-id="${p.id}">Pick</button></div>`).join("")||"<span class='muted'>No players left.</span>";
  document.querySelectorAll(".pick").forEach(b=>b.onclick=()=>pick(b.dataset.id));
  $("teamsView").innerHTML=teams.map(t=>`<div class="team ${t.id===turnTeam()?.id?"active":""}"><h2>${esc(t.name)}</h2><div class="muted">Captain: ${esc(t.captain)}</div>${players.filter(p=>p.picked_by_team===t.id).sort((a,b)=>a.pick_number-b.pick_number).map(p=>`<div class="player">${esc(p.name)}</div>`).join("")}</div>`).join("");
+ const admin=isAdminCaptain();
+ $("undo").disabled=!admin||picked===0;
+ $("reset").disabled=!admin||picked===0;
+ $("undo").style.opacity=admin&&picked?"1":"0.5";
+ $("reset").style.opacity=admin&&picked?"1":"0.5";
 }
 function showDraft(){$("setup").classList.add("hidden");$("join").classList.add("hidden");$("draft").classList.remove("hidden");render()}
 $("create").onclick=create;$("joinBtn").onclick=join;$("copy").onclick=()=>navigator.clipboard.writeText(location.href);$("undo").onclick=undo;$("reset").onclick=reset;
@@ -150,7 +196,7 @@ $("create").onclick=create;$("joinBtn").onclick=join;$("copy").onclick=()=>navig
    $("joinInfo").textContent=`${tournament.name} • ${teams.length} teams • ${players.length} players • Room ${room}`;
    $("joinRole").innerHTML='<option value="spectator">Player / Spectator</option>'+
      teams.map(t=>`<option value="captain">${esc(t.captain)} — ${esc(t.name)}</option>`).join("");
-   $("joinRole").value=s?.role||"spectator";
+   $("joinRole").value=teams.some(t=>t.captain.trim().toLowerCase()===($("joinName").value||"").trim().toLowerCase())?"captain":(s?.role||"spectator");
   }catch(e){
    console.error("Room load error:",e);
    $("joinInfo").textContent="This room could not be loaded.";
