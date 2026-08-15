@@ -24,6 +24,15 @@ function myCaptainTeam(){
 function isAdminCaptain(){
  return !!teams.length && teams[0].captain.trim().toLowerCase()===me.trim().toLowerCase();
 }
+function selectedPlayer(){
+ return players.find(p=>p.name.trim().toLowerCase()===me.trim().toLowerCase())||null;
+}
+function isListedParticipant(){return !!selectedPlayer();}
+function isCaptainName(){
+ const p=selectedPlayer();
+ return !!p && teams.some(t=>t.captain.trim().toLowerCase()===p.name.trim().toLowerCase());
+}
+function participantKey(){return "turfdraft-joined:"+room+":"+me.trim().toLowerCase();}
 function capacities(){
  const n=players.length, k=teams.length;
  return teams.map((_,i)=>Math.floor(n/k)+(i<n%k?1:0));
@@ -81,15 +90,21 @@ async function create(){
 async function join(){
  try{
   hideErr();
-  me=$("joinName").value.trim();
-  if(!me)throw new Error("Enter your name.");
+  const chosen=$("joinName").value.trim();
+  if(!chosen)throw new Error("Select your name.");
   await load();
-  role=myCaptainTeam()?"captain":"spectator";
+  const p=players.find(x=>x.name.trim().toLowerCase()===chosen.toLowerCase());
+  if(!p)throw new Error("You can only join using a name from the tournament player list.");
+  me=p.name;
+  const {data:claimed,error:ce}=await sb.from("players").update({joined:true,joined_at:new Date().toISOString()})
+    .eq("id",p.id).eq("joined",false).select().single();
+  if(ce)throw ce;
+  if(!claimed)throw new Error(`${me} has already joined this tournament.`);
+  localStorage.setItem(participantKey(),"1");
+  role=isCaptainName()?"captain":"spectator";
   localStorage.setItem("turfdraft:"+room,JSON.stringify({me,role}));
   showDraft();
-  try{
-   await subscribe();
-  }catch(realtimeError){
+  try{await subscribe();}catch(realtimeError){
    console.error("Realtime connection:",realtimeError);
    $("connection").textContent="● Realtime offline";
    $("error").textContent="Tournament loaded. Live updates are currently unavailable: "+(realtimeError?.message||String(realtimeError));
@@ -97,7 +112,7 @@ async function join(){
   }
  }catch(e){
   console.error("Join/load error:",e);
-  $("joinInfo").textContent="Could not load this tournament.";
+  $("joinInfo").textContent="Could not join this tournament.";
   $("error").textContent=e?.message||e?.error_description||e?.details||String(e);
   $("error").classList.remove("hidden");
  }
@@ -172,9 +187,13 @@ function render(){
  $("status").textContent=tournament.status==="complete"?"🎉 Draft complete":`🎯 ${t?.captain} — ${t?.name} picks now`;
  $("left").textContent=`(${players.length-picked} left)`;
  const myTeam=myCaptainTeam();
- const can=!!t&&!!myTeam&&t.id===myTeam.id&&tournament.status!=="complete";
+ const can=!!t&&!!myTeam&&t.id===myTeam.id&&tournament.status!=="complete"&&isListedParticipant();
  $("available").innerHTML=players.filter(p=>!p.picked_by_team).map(p=>`<div class="player"><span>${esc(p.name)}</span><button class="pick" ${can?"":"disabled"} data-id="${p.id}">Pick</button></div>`).join("")||"<span class='muted'>No players left.</span>";
  document.querySelectorAll(".pick").forEach(b=>b.onclick=()=>pick(b.dataset.id));
+ $("participants").innerHTML=players.map(p=>{
+ const captain=teams.find(t=>t.captain.trim().toLowerCase()===p.name.trim().toLowerCase());
+ return `<div class="player"><span>${esc(p.name)}${captain?" 👑":""}</span><span class="muted">${p.joined?"🟢 Joined":"⚪ Not joined"}</span></div>`;
+ }).join("");
  $("teamsView").innerHTML=teams.map(t=>`<div class="team ${t.id===turnTeam()?.id?"active":""}"><h2>${esc(t.name)}</h2><div class="muted">Captain: ${esc(t.captain)}</div>${players.filter(p=>p.picked_by_team===t.id).sort((a,b)=>a.pick_number-b.pick_number).map(p=>`<div class="player">${esc(p.name)}</div>`).join("")}</div>`).join("");
  const admin=isAdminCaptain();
  $("undo").disabled=!admin||picked===0;
@@ -194,9 +213,11 @@ $("create").onclick=create;$("joinBtn").onclick=join;$("copy").onclick=()=>navig
   try{
    await load();
    $("joinInfo").textContent=`${tournament.name} • ${teams.length} teams • ${players.length} players • Room ${room}`;
-   $("joinRole").innerHTML='<option value="spectator">Player / Spectator</option>'+
-     teams.map(t=>`<option value="captain">${esc(t.captain)} — ${esc(t.name)}</option>`).join("");
-   $("joinRole").value=teams.some(t=>t.captain.trim().toLowerCase()===($("joinName").value||"").trim().toLowerCase())?"captain":(s?.role||"spectator");
+   $("joinName").outerHTML='<select id="joinName"><option value="">Select your name</option>'+
+     players.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}${teams.some(t=>t.captain.trim().toLowerCase()===p.name.trim().toLowerCase())?" — Captain":""}</option>`).join("")+'</select>';
+   $("joinName").value=s?.me||"";
+   $("joinRole").innerHTML='<option value="auto">Role determined automatically</option>';
+   $("joinRole").disabled=true;
   }catch(e){
    console.error("Room load error:",e);
    $("joinInfo").textContent="This room could not be loaded.";
