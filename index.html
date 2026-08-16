@@ -9,7 +9,7 @@
 </style>
 </head>
 <body><div class="wrap">
-<div class="top"><div class="brand">Match<span>Day</span></div><button id="homeBtn" class="ghost">Home</button></div>
+<div class="top"><div class="brand">Match<span>Day</span></div><div class="actions"><button id="adminLoginNav" class="secondary">🔐 Admin Login</button><button id="homeBtn" class="ghost">Home</button></div></div>
 <div id="error" class="error hidden"></div>
 
 <section id="login" class="hidden">
@@ -28,7 +28,12 @@
   <div class="hero">
     <h1>Cricket, organised.</h1>
     <p class="muted">Create a tournament, invite your players, build fixtures, run live scorecards and keep every batting and bowling record in one place.</p>
-    <div class="actions"><button id="newBtn" class="primary">Create Tournament</button><span id="adminStatus" class="muted small"></span><button id="logoutBtn" class="ghost hidden">Admin Logout</button></div>
+    <div class="actions">
+      <button id="newBtn" class="primary hidden">Create Tournament</button>
+      <button id="homeLoginBtn" class="secondary">🔐 Admin Login</button>
+      <span id="adminStatus" class="muted small"></span>
+      <button id="logoutBtn" class="ghost hidden">Admin Logout</button>
+    </div>
   </div>
   <div class="card"><h2>🏏 Tournaments</h2><div id="tournamentList"></div></div>
 </section>
