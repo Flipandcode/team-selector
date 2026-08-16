@@ -134,7 +134,11 @@ async function join(){
  try{hideError();me=$("joinName").value;if(!me)throw new Error("Select your name from the tournament player list.");
  const p=players.find(x=>x.name===me);if(!p)throw new Error("Select a listed player.");
  if(p.joined&&!localStorage.getItem("mdjoined:"+room+":"+me.toLowerCase()))throw new Error(`${me} has already joined this tournament.`);
- if(!p.joined){const {data,error}=await sb.from("players").update({joined:true,joined_at:new Date().toISOString()}).eq("id",p.id).eq("joined",false).select().single();if(error)throw error;if(!data)throw new Error(`${me} has already joined.`);}
+ if(!p.joined){
+  const {data,error}=await sb.rpc("join_tournament_player",{p_tournament_id:tournament.id,p_player_name:me});
+  if(error)throw error;
+  if(!data)throw new Error(`${me} could not be joined.`);
+}
  localStorage.setItem("mdjoined:"+room+":"+me.toLowerCase(),"1");localStorage.setItem("md:"+room,me);await loadRoom();show("room");subscribe();
  }catch(e){showError(e)}
 }
