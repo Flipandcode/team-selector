@@ -64,6 +64,7 @@
 <section id="join" class="hidden">
  <div class="card"><h2 id="joinTitle">Join Tournament</h2><p id="joinMeta" class="muted"></p>
   <div class="field"><label>Select your name</label><select id="joinName"></select></div><div id="captainHint" class="notice small"></div>
+  <div id="captainPinWrap" class="field hidden"><label>🔐 Captain PIN</label><input id="captainPin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="4-digit PIN from admin" autocomplete="one-time-code"><div class="muted small" style="margin-top:5px">Captains need the private 4-digit PIN shared by the tournament admin.</div></div>
   <div id="joinTeams" class="teams" style="margin-top:12px"></div>
   <button id="joinBtn" class="primary">Join Tournament</button>
  </div>
