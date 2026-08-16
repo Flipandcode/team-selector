@@ -1,6 +1,6 @@
 import {createClient} from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const URL="https://dtgwxfibkurjbgutlcxw.supabase.co", KEY="sb_publishable_y6lWbqtfNnuiDijfWxeCTw_eyAcPwZG";
-const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=false,authUser=null,draftPlayers=[],draftTeams=[];
+const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],draftState=null,draftSelections=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=false,authUser=null,draftPlayers=[],draftTeams=[],joinTeamId=null;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function showError(e){console.error(e);$("error").textContent=e?.message||String(e);$("error").classList.remove("hidden")}
 function hideError(){$("error").classList.add("hidden")}
@@ -109,37 +109,65 @@ async function buildFixtures(){
 }
 async function loadRoom(){
  const {data:t,error:te}=await sb.from("tournaments").select("*").eq("room_code",room).single();if(te)throw te;tournament=t;
- const [a,b,c,d,e]=await Promise.all([
+ const [a,b,c,d,e,f,g]=await Promise.all([
  sb.from("teams").select("*").eq("tournament_id",t.id).order("draft_order"),
  sb.from("players").select("*").eq("tournament_id",t.id).order("created_at"),
  sb.from("matches").select("*").eq("tournament_id",t.id).order("match_number"),
  sb.from("batting_records").select("*"),
- sb.from("ball_events").select("*").order("ball_number")
+ sb.from("ball_events").select("*").order("ball_number"),
+ sb.from("tournament_draft_state").select("*").eq("tournament_id",t.id).maybeSingle(),
+ sb.from("draft_selections").select("*").eq("tournament_id",t.id).order("pick_number")
  ]);
- if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error;if(d.error)throw d.error;if(e.error)throw e.error;
- teams=a.data;players=b.data;matches=c.data;bat=d.data||[];balls=e.data||[];
+ if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error;if(d.error)throw d.error;if(e.error)throw e.error;if(f.error)throw f.error;if(g.error)throw g.error;
+ teams=a.data;players=b.data;matches=c.data;bat=d.data||[];balls=e.data||[];draftState=f.data||null;draftSelections=g.data||[];
  const {data:bo,error:be}=await sb.from("bowling_records").select("*");if(be)throw be;bowl=bo||[];
  render();
 }
 async function openJoin(code){
- try{hideError();room=code;history.replaceState(null,"",`?room=${room}`);await loadRoom();$("joinTitle").textContent=`Join ${tournament.name}`;$("joinMeta").textContent=`${teams.length} teams • ${players.length} players • ${matches.length} matches`;
- const captainPlayers=players.filter(p=>teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase()));
- const regularPlayers=players.filter(p=>!teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase()));
- $("joinName").innerHTML='<option value="">Select your name</option><optgroup label="👑 Captains">'+captainPlayers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} — Captain • ${esc(teams.find(t=>t.captain.toLowerCase()===p.name.toLowerCase())?.name||"")}${p.joined?" — Joined":""}</option>`).join("")+'</optgroup><optgroup label="Players">'+regularPlayers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}${p.joined?" — Joined":""}</option>`).join("")+'</optgroup>';
- $("captainHint").textContent=captainPlayers.length?`👑 Captains: ${captainPlayers.map(p=>p.name).join(", ")}`:"No captains configured.";
- show("join");
+ try{
+  hideError();room=code;joinTeamId=null;history.replaceState(null,"",`?room=${room}`);await loadRoom();
+  $("joinTitle").textContent=`Join ${tournament.name}`;
+  $("joinMeta").textContent=`${teams.length} teams • ${players.length} players • ${matches.length} matches`;
+  const captainPlayers=players.filter(p=>teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase()));
+  const regularPlayers=players.filter(p=>!teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase()));
+  $("joinName").innerHTML='<option value="">Select your name</option><optgroup label="👑 Captains">'+captainPlayers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} — Captain • ${esc(teams.find(t=>t.captain.toLowerCase()===p.name.toLowerCase())?.name||"")}${p.joined?" — Joined":""}</option>`).join('')+'</optgroup><optgroup label="Players">'+regularPlayers.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}${p.joined?" — Joined":""}</option>`).join('')+'</optgroup>';
+  $("joinName").onchange=renderJoinTeams;
+  $("captainHint").textContent=captainPlayers.length?`👑 Captains: ${captainPlayers.map(p=>p.name).join(", ")}`:"No captains configured.";
+  $("joinTeams").innerHTML='<div class="empty">Select your name to see your team.</div>';
+  $("joinBtn").textContent="Join Tournament";
+  show("join");
  }catch(e){showError(e)}
 }
-async function join(){
- try{hideError();me=$("joinName").value;if(!me)throw new Error("Select your name from the tournament player list.");
- const p=players.find(x=>x.name===me);if(!p)throw new Error("Select a listed player.");
- if(p.joined&&!localStorage.getItem("mdjoined:"+room+":"+me.toLowerCase()))throw new Error(`${me} has already joined this tournament.`);
- if(!p.joined){
-  const {data,error}=await sb.rpc("join_tournament_player",{p_tournament_id:tournament.id,p_player_name:me});
-  if(error)throw error;
-  if(!data)throw new Error(`${me} could not be joined.`);
+function renderJoinTeams(){
+ const name=$("joinName").value;joinTeamId=null;
+ if(!name){$("joinTeams").innerHTML='<div class="empty">Select your name to see your team.</div>';$('joinBtn').textContent="Join Tournament";return}
+ const captainTeam=teams.find(t=>t.captain.toLowerCase()===name.toLowerCase());
+ if(captainTeam){
+   joinTeamId=captainTeam.id;
+   $("joinTeams").innerHTML=teams.map(t=>{
+     const mine=t.id===captainTeam.id;
+     return `<div class="team" style="opacity:${mine?1:.45};border-color:${mine?'var(--accent)':'var(--line)'};cursor:${mine?'pointer':'not-allowed'}" data-join-team="${t.id}"><h3>${mine?'👑 ':''}${esc(t.name)}</h3><div class="muted small">Captain: ${esc(t.captain)}</div><div class="pill">${mine?'✓ Your captain team':'Not your team'}</div></div>`;
+   }).join('');
+   document.querySelectorAll("[data-join-team]").forEach(el=>el.onclick=()=>{if(el.dataset.joinTeam===captainTeam.id){joinTeamId=captainTeam.id;renderJoinTeams()}});
+   $("captainHint").textContent=`👑 You are captain of ${captainTeam.name}. Confirm this team to join as captain.`;
+   $("joinBtn").textContent=`Join as Captain — ${captainTeam.name}`;
+ }else{
+   $("joinTeams").innerHTML='<div class="notice small">Your team will be assigned by the captains during the player draft. You cannot choose a team yourself.</div>';
+   $("joinBtn").textContent="Join Tournament";
+ }
 }
- localStorage.setItem("mdjoined:"+room+":"+me.toLowerCase(),"1");localStorage.setItem("md:"+room,me);await loadRoom();show("room");subscribe();
+async function join(){
+ try{
+  hideError();me=$("joinName").value;if(!me)throw new Error("Select your name from the tournament player list.");
+  const p=players.find(x=>x.name===me);if(!p)throw new Error("Select a listed player.");
+  const captainTeam=teams.find(t=>t.captain.toLowerCase()===me.toLowerCase());
+  if(captainTeam && joinTeamId!==captainTeam.id)throw new Error("Select your assigned captain team before joining.");
+  if(p.joined&&!localStorage.getItem("mdjoined:"+room+":"+me.toLowerCase()))throw new Error(`${me} has already joined this tournament.`);
+  if(!p.joined){
+   const {data,error}=await sb.rpc("join_tournament_player",{p_tournament_id:tournament.id,p_player_name:me,p_team_id:captainTeam?joinTeamId:null});
+   if(error)throw error;if(!data)throw new Error(`${me} could not be joined.`);
+  }
+  localStorage.setItem("mdjoined:"+room+":"+me.toLowerCase(),"1");localStorage.setItem("md:"+room,me);await loadRoom();show("room");subscribe();
  }catch(e){showError(e)}
 }
 async function start(){
@@ -210,12 +238,45 @@ async function completeCurrentMatch(){
   await loadRoom();renderScorePanel();
  }catch(e){showError(e)}
 }
+function playerTeam(p){return p?.team_id?team(p.team_id):null}
+function captainPlayerForTeam(t){return players.find(p=>p.name.toLowerCase()===String(t?.captain||"").toLowerCase())}
+function renderDraftPanel(){
+ const unassigned=players.filter(p=>p.joined&&!p.team_id);
+ const currentTeam=draftState?.current_team_id?team(draftState.current_team_id):null;
+ const currentCaptain=currentTeam?captainPlayerForTeam(currentTeam):null;
+ const myPlayer=players.find(p=>p.name.toLowerCase()===me.toLowerCase());
+ const myTeam=playerTeam(myPlayer);
+ const teamCards=teams.map(t=>{
+   const tp=players.filter(p=>p.team_id===t.id);
+   return `<div class="team"><h3>${t.id===currentTeam?.id?'👉 ':''}${esc(t.name)}</h3><div class="muted small">Captain: ${esc(t.captain)}</div>${tp.length?tp.map(p=>`<div class="row"><span>${p.id===currentCaptain?.id?'👑 ':''}${esc(p.name)}</span><span class="pill">${p.id===currentCaptain?.id?'Captain':'Player'}</span></div>`).join(''):'<div class="muted small" style="margin-top:8px">No players assigned yet.</div>'}</div>`;
+ }).join('');
+ let action='';
+ if(!draftState)action='<div class="notice small">Draft setup is not available yet. Ask the admin to run the latest database migration.</div>';
+ else if(draftState.completed)action='<div class="notice"><b>🏆 Draft complete.</b> Every joined player has been assigned to a team.</div>';
+ else if(!currentCaptain || !currentCaptain.joined)action=`<div class="notice">⏳ Waiting for <b>${esc(currentTeam?.captain||'the current captain')}</b> to join. The draft cannot move until that captain joins.</div>`;
+ else if(myPlayer?.id===currentCaptain.id){
+   const opts=unassigned.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+   action=`<div class="card" style="border-color:var(--accent)"><h3>👑 Your turn — ${esc(currentTeam.name)}</h3><p class="muted small">Pick one joined player. After you pick, the next captain gets the turn.</p><div class="field"><label>Select player</label><select id="draftPlayerSelect"><option value="">Choose a player</option>${opts}</select></div><button id="draftPickBtn" class="primary" ${unassigned.length?'':'disabled'}>Pick Player for ${esc(currentTeam.name)}</button></div>`;
+ }else if(myTeam)action=`<div class="notice">Your team: <b>${esc(myTeam.name)}</b>.</div>`;
+ else action=`<div class="notice">⏳ Current turn: <b>${esc(currentTeam?.name||'Unknown team')}</b> — Captain ${esc(currentTeam?.captain||'')}. Your team will be assigned when you are picked.</div>`;
+ return `<div class="card"><h2>🎯 Captain Draft</h2><p class="muted small">Captains pick one joined player at a time in team order. A player can only be picked once.</p>${draftState&&!draftState.completed?`<div class="pill">Pick #${draftState.pick_number} • Current team: ${esc(currentTeam?.name||'')}</div>`:''}${action}</div><div class="teams">${teamCards}</div>`;
+}
+async function draftPick(){
+ try{
+  hideError();const mePlayer=players.find(p=>p.name.toLowerCase()===me.toLowerCase());if(!mePlayer)throw new Error("Join the tournament first.");
+  const currentTeam=team(draftState?.current_team_id);if(!currentTeam)throw new Error("Draft turn is not available.");
+  const captain=captainPlayerForTeam(currentTeam);if(!captain||captain.id!==mePlayer.id)throw new Error("It is not your turn to pick.");
+  const target=$("draftPlayerSelect")?.value;if(!target)throw new Error("Select a player to draft.");
+  const {error}=await sb.rpc("draft_pick_player",{p_tournament_id:tournament.id,p_captain_player_id:mePlayer.id,p_player_id:target});if(error)throw error;
+  await loadRoom();subscribe();
+ }catch(e){showError(e)}
+}
 function render(){
  $("roomTitle").textContent=tournament.name;$("roomMeta").textContent=`${room} • ${teams.length} teams • ${matches.length} matches`;
  $("roomStatus").textContent=tournament.status==="drafting"?"Setup complete — ready to start":tournament.status==="live"?"Tournament live":"Tournament complete";
  $("startBtn").classList.toggle("hidden",tournament.status!=="drafting");
  const done=matches.filter(m=>m.status==="completed").length;
- $("tab-overview").innerHTML=`<div class="grid"><div class="card"><div class="muted">Matches</div><div class="stat">${done}/${matches.length}</div></div><div class="card"><div class="muted">Teams</div><div class="stat">${teams.length}</div></div><div class="card"><div class="muted">Players</div><div class="stat">${players.length}</div></div></div><div class="card"><h2>🏆 Standings</h2>${standings()}</div>`;
+ $("tab-overview").innerHTML=`<div class="grid"><div class="card"><div class="muted">Matches</div><div class="stat">${done}/${matches.length}</div></div><div class="card"><div class="muted">Teams</div><div class="stat">${teams.length}</div></div><div class="card"><div class="muted">Players</div><div class="stat">${players.length}</div></div></div><div class="card"><h2>🏆 Standings</h2>${standings()}</div>${renderDraftPanel()}`;
  $("tab-fixtures").innerHTML=`<div class="card"><h2>Fixtures</h2><div class="fixtures">${matches.map(m=>`<div class="fixture ${m.status==='completed'?'done':m.status==='live'?'live':''}"><h3>Match ${m.match_number}</h3><div>${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</div><p class="muted">${m.status}</p><b>${m.score_a_runs}/${m.score_a_wickets} (${m.score_a_overs}) — ${m.score_b_runs}/${m.score_b_wickets} (${m.score_b_overs})</b>${m.winner_team_id?`<p class="winner">🏆 ${esc(team(m.winner_team_id)?.name)}</p>`:""}</div>`).join("")}</div></div>`;
  const sel=matches.map(m=>`<option value="${m.id}">Match ${m.match_number}: ${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</option>`).join("");
  if(!isAdmin){
@@ -228,6 +289,7 @@ function render(){
  $("tab-players").innerHTML=`<div class="card"><h2>Players</h2>${players.map(p=>`<div class="row"><span>${esc(p.name)}${teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase())?" 👑":""}</span><span class="pill">${p.joined?"Joined":"Not joined"}</span></div>`).join("")}</div>`;
  $("tab-records").innerHTML=`<div class="card"><h2>Player Records</h2><table class="table"><thead><tr><th>Player</th><th>Runs</th><th>4s</th><th>6s</th><th>Wkts</th></tr></thead><tbody>${recordsRows()}</tbody></table></div>`;
  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+ $("draftPickBtn")?.addEventListener("click",draftPick);
 }
 function populateScore(id){
  const m=matches.find(x=>x.id===id);if(!m)return;
@@ -244,7 +306,7 @@ function recordsRows(){
  return Object.entries(map).sort((a,b)=>b[1].runs-a[1].runs).map(([id,x])=>`<tr><td>${esc(players.find(p=>p.id===id)?.name||"")}</td><td>${x.runs}</td><td>${x.fours}</td><td>${x.sixes}</td><td>${x.wickets}</td></tr>`).join("")||'<tr><td colspan="5">No records yet.</td></tr>';
 }
 function switchTab(t){tab=t;["overview","fixtures","score","records","players"].forEach(x=>{$("tab-"+x).classList.toggle("hidden",x!==t)});document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===t))}
-function subscribe(){if(channel)sb.removeChannel(channel);channel=sb.channel("matchday:"+tournament.id).on("postgres_changes",{event:"*",schema:"public",table:"matches",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"players",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"batting_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"bowling_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"ball_events"},loadRoom);channel.subscribe()}
+function subscribe(){if(channel)sb.removeChannel(channel);channel=sb.channel("matchday:"+tournament.id).on("postgres_changes",{event:"*",schema:"public",table:"matches",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"players",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"draft_selections",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"tournament_draft_state",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"batting_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"bowling_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"ball_events"},loadRoom);channel.subscribe()}
 $("newBtn").onclick=()=>{hideError();if(!isAdmin){show("login");return}draftPlayers=[];draftTeams=[];$("teamCount").value=2;renderCreateForm();show("create")};
 $("teamCount").oninput=renderCreateForm;
 $("addPlayerBtn").onclick=addDraftPlayer;
