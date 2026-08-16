@@ -69,7 +69,7 @@ function renderCreateForm(){
  if(draftTeams.length>count)draftTeams=draftTeams.slice(0,count);
  $("teamFields").innerHTML=draftTeams.map((t,i)=>`<div class="card" style="margin:8px 0"><div class="grid">
   <div class="field"><label>Team ${i+1} name</label><input class="team-name" data-i="${i}" value="${esc(t.name)}" placeholder="Team name"></div>
-  <div class="field"><label>Team ${i+1} captain</label><select class="team-captain" data-i="${i}"><option value="">Select captain</option>${draftPlayers.map(p=>`<option value="${esc(p)}" ${p===t.captain?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
+  <div class="field"><label>Team ${i+1} captain</label><select class="team-captain" data-i="${i}" ${draftPlayers.length?"":"disabled"}><option value="">${draftPlayers.length?"Select captain from player list":"Add players first"}</option>${draftPlayers.map(p=>`<option value="${esc(p)}" ${p===t.captain?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
  </div></div>`).join("");
  document.querySelectorAll(".team-name").forEach(x=>x.oninput=()=>{draftTeams[+x.dataset.i].name=x.value});
  document.querySelectorAll(".team-captain").forEach(x=>x.onchange=()=>{draftTeams[+x.dataset.i].captain=x.value});
