@@ -133,8 +133,19 @@ async function buildFixtures(){
  else {for(let i=0;i<teams.length&&rows.length<count;i++)for(let j=i+1;j<teams.length&&rows.length<count;j++)rows.push({tournament_id:tournament.id,match_number:m++,team_a_id:teams[i].id,team_b_id:teams[j].id});}
  const {error}=await sb.from("matches").insert(rows);if(error)throw error;
 }
+async function ensureDraftState(tournamentId){
+ try{
+  const {data,error}=await sb.rpc("ensure_tournament_draft",{p_tournament_id:tournamentId});
+  if(error)throw error;
+  return data;
+ }catch(e){
+  console.warn("Draft state initialisation failed",e);
+  return null;
+ }
+}
 async function loadRoom(){
  const {data:t,error:te}=await sb.from("tournaments").select("*").eq("room_code",room).single();if(te)throw te;tournament=t;
+ await ensureDraftState(t.id);
  const [a,b,c,d,e,f,g]=await Promise.all([
  sb.from("teams").select("*").eq("tournament_id",t.id).order("draft_order"),
  sb.from("players").select("*").eq("tournament_id",t.id).order("created_at"),
