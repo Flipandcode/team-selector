@@ -1,6 +1,6 @@
 import {createClient} from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const URL="https://dtgwxfibkurjbgutlcxw.supabase.co", KEY="sb_publishable_y6lWbqtfNnuiDijfWxeCTw_eyAcPwZG";
-const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],draftState=null,draftSelections=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=false,authUser=null,draftPlayers=[],draftTeams=[],joinTeamId=null;
+const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],draftState=null,draftSelections=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=false,authUser=null,draftPlayers=[],draftTeams=[],joinTeamId=null,captainPin="",captainPins={},reloadTimer=null;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function showError(e){console.error(e);$("error").textContent=e?.message||String(e);$("error").classList.remove("hidden")}
 function hideError(){$("error").classList.add("hidden")}
@@ -139,11 +139,12 @@ async function loadRoom(){
  if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error;if(d.error)throw d.error;if(e.error)throw e.error;if(f.error)throw f.error;if(g.error)throw g.error;
  teams=a.data;players=b.data;matches=c.data;bat=d.data||[];balls=e.data||[];draftState=f.data||null;draftSelections=g.data||[];
  const {data:bo,error:be}=await sb.from("bowling_records").select("*");if(be)throw be;bowl=bo||[];
+ captainPins={};if(isAdmin)await loadCaptainPinsForAdmin();
  render();
 }
 async function openJoin(code){
  try{
-  hideError();room=code;joinTeamId=null;history.replaceState(null,"",`?room=${room}`);await loadRoom();
+  hideError();room=code;joinTeamId=null;captainPin="";$("captainPin")&&($("captainPin").value="");history.replaceState(null,"",`?room=${room}`);await loadRoom();
   $("joinTitle").textContent=`Join ${tournament.name}`;
   $("joinMeta").textContent=`${teams.length} teams • ${players.length} players • ${matches.length} matches`;
   const captainPlayers=players.filter(p=>teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase()));
@@ -153,12 +154,12 @@ async function openJoin(code){
   $("captainHint").textContent=captainPlayers.length?`👑 Captains: ${captainPlayers.map(p=>p.name).join(", ")}`:"No captains configured.";
   $("joinTeams").innerHTML='<div class="empty">Select your name to see your team.</div>';
   $("joinBtn").textContent="Join Tournament";
-  show("join");
+  show("join");subscribe();
  }catch(e){showError(e)}
 }
 function renderJoinTeams(){
  const name=$("joinName").value;joinTeamId=null;
- if(!name){$("joinTeams").innerHTML='<div class="empty">Select your name to see your team.</div>';$('joinBtn').textContent="Join Tournament";return}
+ if(!name){$("captainPinWrap")?.classList.add("hidden");$("joinTeams").innerHTML='<div class="empty">Select your name to see your team.</div>';$('joinBtn').textContent="Join Tournament";return}
  const captainTeam=teams.find(t=>t.captain.toLowerCase()===name.toLowerCase());
  if(captainTeam){
    joinTeamId=captainTeam.id;
@@ -167,9 +168,11 @@ function renderJoinTeams(){
      return `<div class="team" style="opacity:${mine?1:.45};border-color:${mine?'var(--accent)':'var(--line)'};cursor:${mine?'pointer':'not-allowed'}" data-join-team="${t.id}"><h3>${mine?'👑 ':''}${esc(t.name)}</h3><div class="muted small">Captain: ${esc(t.captain)}</div><div class="pill">${mine?'✓ Your captain team':'Not your team'}</div></div>`;
    }).join('');
    document.querySelectorAll("[data-join-team]").forEach(el=>el.onclick=()=>{if(el.dataset.joinTeam===captainTeam.id){joinTeamId=captainTeam.id;renderJoinTeams()}});
-   $("captainHint").textContent=`👑 You are captain of ${captainTeam.name}. Confirm this team to join as captain.`;
+   $("captainHint").textContent=`👑 You are captain of ${captainTeam.name}. Enter the 4-digit captain PIN shared by the admin.`;
+   $("captainPinWrap")?.classList.remove("hidden");
    $("joinBtn").textContent=`Join as Captain — ${captainTeam.name}`;
  }else{
+   $("captainPinWrap")?.classList.add("hidden");
    $("joinTeams").innerHTML='<div class="notice small">Your team will be assigned by the captains during the player draft. You cannot choose a team yourself.</div>';
    $("joinBtn").textContent="Join Tournament";
  }
@@ -182,7 +185,8 @@ async function join(){
   if(captainTeam && joinTeamId!==captainTeam.id)throw new Error("Select your assigned captain team before joining.");
   if(p.joined&&!localStorage.getItem("mdjoined:"+room+":"+me.toLowerCase()))throw new Error(`${me} has already joined this tournament.`);
   if(!p.joined){
-   const {data,error}=await sb.rpc("join_tournament_player",{p_tournament_id:tournament.id,p_player_name:me,p_team_id:captainTeam?joinTeamId:null});
+   if(captainTeam){captainPin=$("captainPin")?.value.trim()||"";if(!/^\d{4}$/.test(captainPin))throw new Error("Enter the 4-digit captain PIN shared by the admin.");}
+   const {data,error}=await sb.rpc("join_tournament_player",{p_tournament_id:tournament.id,p_player_name:me,p_team_id:captainTeam?joinTeamId:null,p_captain_pin:captainTeam?captainPin:null});
    if(error)throw error;if(!data)throw new Error(`${me} could not be joined.`);
   }
   localStorage.setItem("mdjoined:"+room+":"+me.toLowerCase(),"1");localStorage.setItem("md:"+room,me);await loadRoom();show("room");subscribe();
@@ -289,12 +293,22 @@ async function draftPick(){
   await loadRoom();subscribe();
  }catch(e){showError(e)}
 }
+function randomPin(){return String(Math.floor(1000+Math.random()*9000));}
+async function generateCaptainPins(){
+ try{hideError();await refreshAuth();if(!isAdmin)throw new Error("Only the admin can generate captain PINs.");
+  const generated={};for(const t of teams){const pin=randomPin();const {error}=await sb.rpc("set_captain_pin",{p_team_id:t.id,p_pin:pin});if(error)throw error;generated[t.id]=pin;}
+  captainPins=generated;render();const lines=teams.map(t=>`${t.name} — Captain ${t.captain}: ${generated[t.id]}`).join("\n");
+  try{await navigator.clipboard.writeText(`MatchDay Captain PINs\n${tournament.name}\n\n${lines}`)}catch{}
+  alert(`Captain PINs generated.\n\n${lines}\n\nThe PIN list was also copied to your clipboard.`);
+ }catch(e){showError(e)}
+}
+async function loadCaptainPinsForAdmin(){if(!isAdmin)return;try{const {data,error}=await sb.from("captain_pins").select("team_id,pin_code").eq("tournament_id",tournament.id);if(error)throw error;captainPins=Object.fromEntries((data||[]).map(x=>[x.team_id,x.pin_code]));}catch(e){console.warn("Captain PINs unavailable",e)}}
 function render(){
  $("roomTitle").textContent=tournament.name;$("roomMeta").textContent=`${room} • ${teams.length} teams • ${matches.length} matches`;
  $("roomStatus").textContent=tournament.status==="drafting"?"Setup complete — ready to start":tournament.status==="live"?"Tournament live":"Tournament complete";
  $("startBtn").classList.toggle("hidden",tournament.status!=="drafting");
  const done=matches.filter(m=>m.status==="completed").length;
- $("tab-overview").innerHTML=`<div class="grid"><div class="card"><div class="muted">Matches</div><div class="stat">${done}/${matches.length}</div></div><div class="card"><div class="muted">Teams</div><div class="stat">${teams.length}</div></div><div class="card"><div class="muted">Players</div><div class="stat">${players.length}</div></div></div><div class="card"><h2>🏆 Standings</h2>${standings()}</div>${renderDraftPanel()}`;
+ $("tab-overview").innerHTML=`<div class="grid"><div class="card"><div class="muted">Matches</div><div class="stat">${done}/${matches.length}</div></div><div class="card"><div class="muted">Teams</div><div class="stat">${teams.length}</div></div><div class="card"><div class="muted">Players</div><div class="stat">${players.length}</div></div></div><div class="card"><h2>🏆 Standings</h2>${standings()}</div>${isAdmin?`<div class="card"><h2>🔐 Captain PINs</h2><p class="muted small">Only the admin can view these. Generate or regenerate a unique 4-digit PIN for each captain and share it privately.</p><div class="teams">${teams.map(t=>`<div class="team"><h3>${esc(t.name)}</h3><div class="muted small">Captain: ${esc(t.captain)}</div><div style="font-size:28px;font-weight:900;letter-spacing:5px;margin:8px 0">${captainPins[t.id]?esc(captainPins[t.id]):"••••"}</div></div>`).join("")}</div><button id="generatePinsBtn" class="gold" style="margin-top:12px">🔑 ${Object.keys(captainPins).length?"Regenerate":"Generate"} Captain PINs</button></div>`:""}${renderDraftPanel()}`;
  $("tab-fixtures").innerHTML=`<div class="card"><h2>Fixtures</h2><div class="fixtures">${matches.map(m=>`<div class="fixture ${m.status==='completed'?'done':m.status==='live'?'live':''}"><h3>Match ${m.match_number}</h3><div>${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</div><p class="muted">${m.status}</p><b>${m.score_a_runs}/${m.score_a_wickets} (${m.score_a_overs}) — ${m.score_b_runs}/${m.score_b_wickets} (${m.score_b_overs})</b>${m.winner_team_id?`<p class="winner">🏆 ${esc(team(m.winner_team_id)?.name)}</p>`:""}</div>`).join("")}</div></div>`;
  const sel=matches.map(m=>`<option value="${m.id}">Match ${m.match_number}: ${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</option>`).join("");
  if(!isAdmin){
@@ -307,7 +321,7 @@ function render(){
  $("tab-players").innerHTML=`<div class="card"><h2>Players</h2>${players.map(p=>`<div class="row"><span>${esc(p.name)}${teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase())?" 👑":""}</span><span class="pill">${p.joined?"Joined":"Not joined"}</span></div>`).join("")}</div>`;
  $("tab-records").innerHTML=`<div class="card"><h2>Player Records</h2><table class="table"><thead><tr><th>Player</th><th>Runs</th><th>4s</th><th>6s</th><th>Wkts</th></tr></thead><tbody>${recordsRows()}</tbody></table></div>`;
  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
- $("draftPickBtn")?.addEventListener("click",draftPick);
+ $("draftPickBtn")?.addEventListener("click",draftPick);$("generatePinsBtn")?.addEventListener("click",generateCaptainPins);
 }
 function populateScore(id){
  const m=matches.find(x=>x.id===id);if(!m)return;
@@ -324,7 +338,19 @@ function recordsRows(){
  return Object.entries(map).sort((a,b)=>b[1].runs-a[1].runs).map(([id,x])=>`<tr><td>${esc(players.find(p=>p.id===id)?.name||"")}</td><td>${x.runs}</td><td>${x.fours}</td><td>${x.sixes}</td><td>${x.wickets}</td></tr>`).join("")||'<tr><td colspan="5">No records yet.</td></tr>';
 }
 function switchTab(t){tab=t;["overview","fixtures","score","records","players"].forEach(x=>{$("tab-"+x).classList.toggle("hidden",x!==t)});document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===t))}
-function subscribe(){if(channel)sb.removeChannel(channel);channel=sb.channel("matchday:"+tournament.id).on("postgres_changes",{event:"*",schema:"public",table:"matches",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"players",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"draft_selections",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"tournament_draft_state",filter:`tournament_id=eq.${tournament.id}`},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"batting_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"bowling_records"},loadRoom).on("postgres_changes",{event:"*",schema:"public",table:"ball_events"},loadRoom);channel.subscribe()}
+function scheduleRoomReload(){if(reloadTimer)clearTimeout(reloadTimer);reloadTimer=setTimeout(async()=>{try{await loadRoom()}catch(e){console.error("Realtime reload failed",e)}},80);}
+function subscribe(){if(!tournament?.id)return;if(channel){sb.removeChannel(channel);channel=null;}const id=tournament.id;channel=sb.channel("matchday-room:"+id)
+ .on("postgres_changes",{event:"*",schema:"public",table:"matches",filter:`tournament_id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"players",filter:`tournament_id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"draft_selections",filter:`tournament_id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"tournament_draft_state",filter:`tournament_id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"teams",filter:`tournament_id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"tournaments",filter:`id=eq.${id}`},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"batting_records"},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"bowling_records"},scheduleRoomReload)
+ .on("postgres_changes",{event:"*",schema:"public",table:"ball_events"},scheduleRoomReload)
+ .subscribe(status=>{if(status==="CHANNEL_ERROR")console.warn("MatchDay realtime channel error")});}
+
 $("newBtn").onclick=()=>{hideError();if(!isAdmin){show("login");return}draftPlayers=[];draftTeams=[];$("teamCount").value=2;renderCreateForm();show("create")};
 $("teamCount").oninput=renderCreateForm;
 $("addPlayerBtn").onclick=addDraftPlayer;
