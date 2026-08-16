@@ -1,145 +1,317 @@
-create extension if not exists pgcrypto;
 
--- Existing tables are retained. These migrations are safe to run on the current project.
-alter table public.tournaments add column if not exists match_count integer not null default 1;
-alter table public.tournaments add column if not exists started_at timestamptz;
-alter table public.tournaments add column if not exists winner_team_id uuid;
-alter table public.tournaments add column if not exists join_code text;
-alter table public.players add column if not exists joined boolean not null default false;
-alter table public.players add column if not exists joined_at timestamptz;
+-- ============================================================
+-- MATCHDAY v5.1 SAFE MIGRATION
+-- Existing data is preserved.
+--
+-- This migration supports the old admin_users table from v3/v4,
+-- where the table may contain username/password_hash, and safely
+-- adds Supabase Auth linkage without assuming user_id exists.
+--
+-- BEFORE RUNNING:
+-- 1) Create your admin user in Supabase Dashboard > Authentication > Users.
+-- 2) Copy that Auth user's UUID.
+-- 3) Replace the value below.
+-- ============================================================
 
-create table if not exists public.matches (
- id uuid primary key default gen_random_uuid(),
- tournament_id uuid not null references public.tournaments(id) on delete cascade,
- match_number integer not null,
- team_a_id uuid not null references public.teams(id) on delete cascade,
- team_b_id uuid not null references public.teams(id) on delete cascade,
- status text not null default 'scheduled' check(status in ('scheduled','live','completed')),
- winner_team_id uuid references public.teams(id) on delete set null,
- score_a_runs integer not null default 0,
- score_a_wickets integer not null default 0,
- score_a_overs numeric(5,1) not null default 0,
- score_b_runs integer not null default 0,
- score_b_wickets integer not null default 0,
- score_b_overs numeric(5,1) not null default 0,
- scheduled_at timestamptz,
- created_at timestamptz not null default now(),
- unique(tournament_id,match_number)
-);
+begin;
 
-create table if not exists public.batting_records (
- id uuid primary key default gen_random_uuid(),
- match_id uuid not null references public.matches(id) on delete cascade,
- player_id uuid not null references public.players(id) on delete cascade,
- team_id uuid not null references public.teams(id) on delete cascade,
- innings integer not null default 1,
- runs integer not null default 0,
- balls integer not null default 0,
- fours integer not null default 0,
- sixes integer not null default 0,
- dismissal text,
- unique(match_id,player_id,innings)
-);
+-- ------------------------------------------------------------
+-- 1. Preserve the existing admin_users table and add auth linkage
+-- ------------------------------------------------------------
+alter table if exists public.admin_users
+  add column if not exists auth_user_id uuid;
 
-create table if not exists public.bowling_records (
- id uuid primary key default gen_random_uuid(),
- match_id uuid not null references public.matches(id) on delete cascade,
- player_id uuid not null references public.players(id) on delete cascade,
- team_id uuid not null references public.teams(id) on delete cascade,
- innings integer not null default 1,
- overs numeric(5,1) not null default 0,
- maidens integer not null default 0,
- runs integer not null default 0,
- wickets integer not null default 0,
- unique(match_id,player_id,innings)
-);
+alter table if exists public.admin_users
+  add column if not exists active boolean not null default true;
 
-create index if not exists idx_matches_tournament on public.matches(tournament_id);
-create index if not exists idx_batting_match on public.batting_records(match_id);
-create index if not exists idx_bowling_match on public.bowling_records(match_id);
+-- Link the existing row to the Supabase Auth user.
+-- IMPORTANT: replace the UUID below with your Supabase Auth user's UUID.
+-- If you have not created the Auth user yet, leave this UPDATE commented
+-- and run it after creating the user.
+--
+-- update public.admin_users
+-- set auth_user_id = 'PASTE-SUPABASE-AUTH-USER-UUID-HERE'
+-- where lower(username) = 'admin';
 
-alter table public.tournaments enable row level security;
-alter table public.matches enable row level security;
-alter table public.batting_records enable row level security;
-alter table public.bowling_records enable row level security;
+-- Add FK only if it does not already exist.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_users_auth_user_id_fkey'
+      and conrelid = 'public.admin_users'::regclass
+  ) then
+    alter table public.admin_users
+      add constraint admin_users_auth_user_id_fkey
+      foreign key (auth_user_id) references auth.users(id) on delete cascade;
+  end if;
+end $$;
 
-drop policy if exists "tournaments public read" on public.tournaments;
-create policy "tournaments public read" on public.tournaments for select using(true);
-drop policy if exists "tournaments public insert" on public.tournaments;
-create policy "tournaments public insert" on public.tournaments for insert with check(true);
-drop policy if exists "tournaments public update" on public.tournaments;
-create policy "tournaments public update" on public.tournaments for update using(true) with check(true);
+create unique index if not exists admin_users_auth_user_id_uidx
+  on public.admin_users(auth_user_id)
+  where auth_user_id is not null;
 
-drop policy if exists "matches public read" on public.matches;
-create policy "matches public read" on public.matches for select using(true);
-drop policy if exists "matches public insert" on public.matches;
-create policy "matches public insert" on public.matches for insert with check(true);
-drop policy if exists "matches public update" on public.matches;
-create policy "matches public update" on public.matches for update using(true) with check(true);
-
-drop policy if exists "batting public read" on public.batting_records;
-create policy "batting public read" on public.batting_records for select using(true);
-drop policy if exists "batting public insert" on public.batting_records;
-create policy "batting public insert" on public.batting_records for insert with check(true);
-drop policy if exists "batting public update" on public.batting_records;
-create policy "batting public update" on public.batting_records for update using(true) with check(true);
-drop policy if exists "batting public delete" on public.batting_records;
-create policy "batting public delete" on public.batting_records for delete using(true);
-
-drop policy if exists "bowling public read" on public.bowling_records;
-create policy "bowling public read" on public.bowling_records for select using(true);
-drop policy if exists "bowling public insert" on public.bowling_records;
-create policy "bowling public insert" on public.bowling_records for insert with check(true);
-drop policy if exists "bowling public update" on public.bowling_records;
-create policy "bowling public update" on public.bowling_records for update using(true) with check(true);
-drop policy if exists "bowling public delete" on public.bowling_records;
-create policy "bowling public delete" on public.bowling_records for delete using(true);
-
-do $$ begin alter publication supabase_realtime add table public.matches; exception when duplicate_object then null; end $$;
-do $$ begin alter publication supabase_realtime add table public.batting_records; exception when duplicate_object then null; end $$;
-do $$ begin alter publication supabase_realtime add table public.bowling_records; exception when duplicate_object then null; end $$;
-
-create table if not exists public.ball_events (
- id uuid primary key default gen_random_uuid(),
- match_id uuid not null references public.matches(id) on delete cascade,
- innings integer not null default 1,
- ball_number integer not null,
- over_number integer not null,
- ball_in_over integer not null,
- striker_id uuid references public.players(id) on delete set null,
- non_striker_id uuid references public.players(id) on delete set null,
- bowler_id uuid references public.players(id) on delete set null,
- event_type text not null check(event_type in ('run','four','six','wide','noball','bye','legbye','wicket','dot')),
- bat_runs integer not null default 0,
- extra_runs integer not null default 0,
- total_runs integer not null default 0,
- wicket_type text,
- dismissed_player_id uuid references public.players(id) on delete set null,
- created_at timestamptz not null default now()
-);
-create index if not exists idx_ball_events_match on public.ball_events(match_id,innings,ball_number);
-alter table public.ball_events enable row level security;
-drop policy if exists "ball events public read" on public.ball_events;
-create policy "ball events public read" on public.ball_events for select using(true);
-drop policy if exists "ball events public insert" on public.ball_events;
-create policy "ball events public insert" on public.ball_events for insert with check(true);
-do $$ begin alter publication supabase_realtime add table public.ball_events; exception when duplicate_object then null; end $$;
-
--- Admin-only login
-create table if not exists public.admin_users (
- id uuid primary key default gen_random_uuid(),
- username text not null unique,
- password_hash text not null,
- active boolean not null default true,
- created_at timestamptz not null default now()
-);
 alter table public.admin_users enable row level security;
-drop policy if exists "admin login lookup" on public.admin_users;
-create policy "admin login lookup" on public.admin_users for select using(true);
 
+drop policy if exists "admin login lookup" on public.admin_users;
+drop policy if exists "admin can read own row" on public.admin_users;
+
+create policy "admin can read own row"
+on public.admin_users
+for select
+to authenticated
+using (auth_user_id = auth.uid() and active = true);
+
+-- ------------------------------------------------------------
+-- 2. Admin helper
+-- ------------------------------------------------------------
+create or replace function public.is_matchday_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.admin_users
+    where auth_user_id = auth.uid()
+      and active = true
+  );
+$$;
+
+-- ------------------------------------------------------------
+-- 3. Public player join RPC
+-- Players do not need a Supabase Auth account.
+-- This performs only the controlled "joined=true" update.
+-- ------------------------------------------------------------
+create or replace function public.join_tournament_player(
+  p_tournament_id uuid,
+  p_player_name text
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  p public.players;
+begin
+  select *
+  into p
+  from public.players
+  where tournament_id = p_tournament_id
+    and lower(trim(name)) = lower(trim(p_player_name))
+  limit 1;
+
+  if p.id is null then
+    raise exception 'Player not found in this tournament';
+  end if;
+
+  if p.joined then
+    raise exception 'Player already joined';
+  end if;
+
+  update public.players
+  set joined = true
+  where id = p.id
+    and joined = false;
+
+  if not found then
+    raise exception 'Player was already joined';
+  end if;
+
+  return json_build_object(
+    'id', p.id,
+    'name', p.name
+  );
+end;
+$$;
+
+revoke all on function public.join_tournament_player(uuid,text) from public;
+grant execute on function public.join_tournament_player(uuid,text) to anon, authenticated;
+
+-- ------------------------------------------------------------
+-- 4. Ensure RLS is enabled on protected tables
+-- ------------------------------------------------------------
+alter table if exists public.tournaments enable row level security;
+alter table if exists public.teams enable row level security;
+alter table if exists public.players enable row level security;
+alter table if exists public.matches enable row level security;
+alter table if exists public.batting_records enable row level security;
+alter table if exists public.bowling_records enable row level security;
+alter table if exists public.ball_events enable row level security;
+
+-- ------------------------------------------------------------
+-- 5. Drop ONLY write policies on protected tournament/scoring tables.
+-- SELECT policies are intentionally retained.
+-- ------------------------------------------------------------
+do $$
+declare r record;
+begin
+  for r in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in (
+        'tournaments',
+        'teams',
+        'players',
+        'matches',
+        'batting_records',
+        'bowling_records',
+        'ball_events'
+      )
+      and cmd in ('INSERT','UPDATE','DELETE')
+  loop
+    execute format(
+      'drop policy if exists %I on public.%I',
+      r.policyname,
+      r.tablename
+    );
+  end loop;
+end $$;
+
+-- ------------------------------------------------------------
+-- 6. Admin-only writes
+-- ------------------------------------------------------------
+do $$
+begin
+
+  if to_regclass('public.tournaments') is not null then
+    create policy "matchday admin insert tournaments"
+    on public.tournaments for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update tournaments"
+    on public.tournaments for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete tournaments"
+    on public.tournaments for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.teams') is not null then
+    create policy "matchday admin insert teams"
+    on public.teams for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update teams"
+    on public.teams for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete teams"
+    on public.teams for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.players') is not null then
+    create policy "matchday admin insert players"
+    on public.players for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update players"
+    on public.players for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete players"
+    on public.players for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.matches') is not null then
+    create policy "matchday admin insert matches"
+    on public.matches for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update matches"
+    on public.matches for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete matches"
+    on public.matches for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.batting_records') is not null then
+    create policy "matchday admin insert batting"
+    on public.batting_records for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update batting"
+    on public.batting_records for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete batting"
+    on public.batting_records for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.bowling_records') is not null then
+    create policy "matchday admin insert bowling"
+    on public.bowling_records for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update bowling"
+    on public.bowling_records for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete bowling"
+    on public.bowling_records for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+  if to_regclass('public.ball_events') is not null then
+    create policy "matchday admin insert ball events"
+    on public.ball_events for insert to authenticated
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin update ball events"
+    on public.ball_events for update to authenticated
+    using (public.is_matchday_admin())
+    with check (public.is_matchday_admin());
+
+    create policy "matchday admin delete ball events"
+    on public.ball_events for delete to authenticated
+    using (public.is_matchday_admin());
+  end if;
+
+end $$;
+
+commit;
+
+-- ============================================================
+-- AFTER RUNNING THE MIGRATION:
+--
+-- 1. Supabase Dashboard -> Authentication -> Users
+--    Create your admin email/password user.
+--
+-- 2. Copy that user's UUID.
+--
+-- 3. Run ONLY this statement, replacing the UUID:
+--
+-- update public.admin_users
+-- set auth_user_id = 'YOUR-AUTH-USER-UUID',
+--     active = true
+-- where lower(username) = 'admin';
+--
+-- If your old admin username is not "admin", use the correct username.
+--
+-- If there is no old admin row, use:
+--
+-- insert into public.admin_users (auth_user_id, active)
+-- values ('YOUR-AUTH-USER-UUID', true)
+-- on conflict (auth_user_id)
+-- do update set active = true;
+--
 -- IMPORTANT:
--- Generate SHA-256 of your chosen admin password and insert it with:
--- insert into public.admin_users(username,password_hash) values ('admin','YOUR_SHA256_HASH');
--- Example only (DO NOT use this password in production):
--- password = MatchDay123!
--- SHA-256 = 3b7e4a4f8f0c0d8f1d7f5d4e9d4d0d0e4f4d8a7e0a5f2a2e4e0b6e5d7f3d5c1
+-- Do not store a Supabase service-role key in the frontend.
+-- ============================================================
