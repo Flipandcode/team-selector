@@ -45,10 +45,17 @@
    <div class="field"><label>Number of teams</label><input id="teamCount" type="number" min="2" max="20" value="2"></div>
    <div class="field"><label>Number of matches</label><input id="matchCount" type="number" min="1" max="200" value="7"></div>
   </div>
-  <div class="card"><h3>👥 Teams & Captains</h3><p class="muted small">Enter each team name and select its captain from that team's player list.</p><div id="teamFields"></div></div>
-  <div class="card"><h3>🏏 Player List</h3><p class="muted small">Add players one at a time. Captains will be selected from these names.</p>
+  <div class="card">
+    <h3>🏏 1. Add Players</h3>
+    <p class="muted small">Add the complete player list first. These players will appear automatically in the captain dropdowns below.</p>
     <div class="actions"><input id="playerAddInput" placeholder="Enter player name" style="flex:1;min-width:180px"><button id="addPlayerBtn" class="secondary">+ Add Player</button></div>
     <div id="playerChips" style="margin-top:12px"></div>
+    <div id="playerCountHint" class="muted small" style="margin-top:10px">No players added yet.</div>
+  </div>
+  <div class="card">
+    <h3>👥 2. Set Teams & Captains</h3>
+    <p class="muted small">Enter each team name, then choose its captain from the player list above. A player can be captain of only one team.</p>
+    <div id="teamFields"></div>
   </div>
   <div class="actions"><button id="createBtn" class="primary">Create & Build Fixtures</button><button id="cancelCreate" class="ghost">Cancel</button></div>
  </div>
