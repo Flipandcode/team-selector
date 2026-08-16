@@ -57,10 +57,28 @@ function openAdminLogin(){
  show("login");
  $("adminUser")?.focus();
 }
+async function deleteTournament(id,name){
+ try{
+  hideError();
+  await refreshAuth();
+  if(!isAdmin)throw new Error("Only the admin can delete tournaments.");
+  const ok=confirm(`Delete "${name}"?\n\nThis will permanently delete the tournament, teams, players, fixtures, draft picks, scores and player records.\n\nThis cannot be undone.`);
+  if(!ok)return;
+  const {error}=await sb.from("tournaments").delete().eq("id",id);
+  if(error)throw error;
+  if(tournament?.id===id){
+    tournament=null;teams=[];players=[];matches=[];draftState=null;draftSelections=[];room="";
+    history.replaceState(null,"",location.pathname);
+    show("home");
+  }
+  await loadTournaments();
+ }catch(e){showError(e)}
+}
 async function loadTournaments(){
  const {data,error}=await sb.from("tournaments").select("*").order("created_at",{ascending:false}); if(error)throw error;
- $("tournamentList").innerHTML=data.length?data.map(t=>`<div class="row"><div><b>${esc(t.name)}</b><div class="muted small">${esc(t.room_code)} • ${t.match_count||1} matches • ${t.status}</div></div><button class="secondary joinRoom" data-room="${esc(t.room_code)}">Join</button></div>`).join(""):'<div class="empty">No tournaments yet. Create your first series.</div>';
+ $("tournamentList").innerHTML=data.length?data.map(t=>`<div class="row"><div><b>${esc(t.name)}</b><div class="muted small">${esc(t.room_code)} • ${t.match_count||1} matches • ${t.status}</div></div><div class="actions"><button class="secondary joinRoom" data-room="${esc(t.room_code)}">Join</button>${isAdmin?`<button class="danger deleteTournament" data-id="${esc(t.id)}" data-name="${esc(t.name)}">Delete</button>`:""}</div></div>`).join(""):'<div class="empty">No tournaments yet. Create your first series.</div>';
  document.querySelectorAll(".joinRoom").forEach(b=>b.onclick=()=>openJoin(b.dataset.room));
+ document.querySelectorAll(".deleteTournament").forEach(b=>b.onclick=()=>deleteTournament(b.dataset.id,b.dataset.name));
 }
 
 function renderCreateForm(){
@@ -241,7 +259,7 @@ async function completeCurrentMatch(){
 function playerTeam(p){return p?.team_id?team(p.team_id):null}
 function captainPlayerForTeam(t){return players.find(p=>p.name.toLowerCase()===String(t?.captain||"").toLowerCase())}
 function renderDraftPanel(){
- const unassigned=players.filter(p=>p.joined&&!p.team_id);
+ const unassigned=players.filter(p=>!p.team_id);
  const currentTeam=draftState?.current_team_id?team(draftState.current_team_id):null;
  const currentCaptain=currentTeam?captainPlayerForTeam(currentTeam):null;
  const myPlayer=players.find(p=>p.name.toLowerCase()===me.toLowerCase());
@@ -252,14 +270,14 @@ function renderDraftPanel(){
  }).join('');
  let action='';
  if(!draftState)action='<div class="notice small">Draft setup is not available yet. Ask the admin to run the latest database migration.</div>';
- else if(draftState.completed)action='<div class="notice"><b>🏆 Draft complete.</b> Every joined player has been assigned to a team.</div>';
+ else if(draftState.completed)action='<div class="notice"><b>🏆 Draft complete.</b> Every roster player has been assigned to a team.</div>';
  else if(!currentCaptain || !currentCaptain.joined)action=`<div class="notice">⏳ Waiting for <b>${esc(currentTeam?.captain||'the current captain')}</b> to join. The draft cannot move until that captain joins.</div>`;
  else if(myPlayer?.id===currentCaptain.id){
    const opts=unassigned.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
-   action=`<div class="card" style="border-color:var(--accent)"><h3>👑 Your turn — ${esc(currentTeam.name)}</h3><p class="muted small">Pick one joined player. After you pick, the next captain gets the turn.</p><div class="field"><label>Select player</label><select id="draftPlayerSelect"><option value="">Choose a player</option>${opts}</select></div><button id="draftPickBtn" class="primary" ${unassigned.length?'':'disabled'}>Pick Player for ${esc(currentTeam.name)}</button></div>`;
+   action=`<div class="card" style="border-color:var(--accent)"><h3>👑 Your turn — ${esc(currentTeam.name)}</h3><p class="muted small">Pick one player from the tournament roster. After you pick, the next captain gets the turn.</p><div class="field"><label>Select player</label><select id="draftPlayerSelect"><option value="">Choose a player</option>${opts}</select></div><button id="draftPickBtn" class="primary" ${unassigned.length?'':'disabled'}>Pick Player for ${esc(currentTeam.name)}</button></div>`;
  }else if(myTeam)action=`<div class="notice">Your team: <b>${esc(myTeam.name)}</b>.</div>`;
  else action=`<div class="notice">⏳ Current turn: <b>${esc(currentTeam?.name||'Unknown team')}</b> — Captain ${esc(currentTeam?.captain||'')}. Your team will be assigned when you are picked.</div>`;
- return `<div class="card"><h2>🎯 Captain Draft</h2><p class="muted small">Captains pick one joined player at a time in team order. A player can only be picked once.</p>${draftState&&!draftState.completed?`<div class="pill">Pick #${draftState.pick_number} • Current team: ${esc(currentTeam?.name||'')}</div>`:''}${action}</div><div class="teams">${teamCards}</div>`;
+ return `<div class="card"><h2>🎯 Captain Draft</h2><p class="muted small">Captains pick one player from the tournament roster at a time in team order. A player can only be picked once. Players do not need to join before being drafted.</p>${draftState&&!draftState.completed?`<div class="pill">Pick #${draftState.pick_number} • Current team: ${esc(currentTeam?.name||'')}</div>`:''}${action}</div><div class="teams">${teamCards}</div>`;
 }
 async function draftPick(){
  try{
