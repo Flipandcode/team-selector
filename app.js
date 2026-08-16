@@ -1,6 +1,6 @@
 import {createClient} from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const URL="https://dtgwxfibkurjbgutlcxw.supabase.co", KEY="sb_publishable_y6lWbqtfNnuiDijfWxeCTw_eyAcPwZG";
-const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=localStorage.getItem("md_admin")==="1",draftPlayers=[],draftTeams=[];
+const sb=createClient(URL,KEY); const $=id=>document.getElementById(id); let tournament=null,teams=[],players=[],matches=[],bat=[],bowl=[],balls=[],me="",room="",channel=null,tab="overview",selectedMatchId=null,innings=1,isAdmin=false,authUser=null,draftPlayers=[],draftTeams=[];
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function showError(e){console.error(e);$("error").textContent=e?.message||String(e);$("error").classList.remove("hidden")}
 function hideError(){$("error").classList.add("hidden")}
@@ -9,29 +9,34 @@ function team(id){return teams.find(t=>t.id===id)}
 function captainFor(id){return team(id)?.captain||""}
 function myTeam(){return teams.find(t=>t.captain.toLowerCase()===me.toLowerCase())}
 
+
+async function refreshAuth(){
+ const {data}=await sb.auth.getSession();
+ authUser=data.session?.user||null;
+ if(!authUser){isAdmin=false;updateAdminUI();return}
+ const {data:admin}=await sb.from("admin_users").select("auth_user_id").eq("auth_user_id",authUser.id).eq("active",true).maybeSingle();
+ isAdmin=!!admin;updateAdminUI();
+}
 function updateAdminUI(){
- const logged=localStorage.getItem("md_admin")==="1";
+ const logged=!!authUser&&isAdmin;
  $("newBtn")?.classList.toggle("hidden",!logged);
  $("logoutBtn")?.classList.toggle("hidden",!logged);
-}
-async function hashPassword(v){
- const data=new TextEncoder().encode(v);
- const hash=await crypto.subtle.digest("SHA-256",data);
- return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,"0")).join("");
+ $("adminStatus") && ($("adminStatus").textContent=logged?`Signed in as ${authUser.email}`:"");
 }
 async function adminLogin(){
  try{
-  hideError();const username=$("adminUser").value.trim(),password=$("adminPass").value;
-  if(!username||!password)throw new Error("Enter admin username and password.");
-  const {data,error}=await sb.from("admin_users").select("id,username,password_hash").eq("username",username).eq("active",true).single();
-  if(error)throw new Error("Invalid admin username or password.");
-  const hash=await hashPassword(password);
-  if(hash!==data.password_hash)throw new Error("Invalid admin username or password.");
-  localStorage.setItem("md_admin","1");isAdmin=true;show("home");await loadTournaments();
+  hideError();const email=$("adminUser").value.trim(),password=$("adminPass").value;
+  if(!email||!password)throw new Error("Enter your admin email and password.");
+  const {data,error}=await sb.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  authUser=data.user;await refreshAuth();
+  if(!isAdmin)await sb.auth.signOut(),authUser=null,await refreshAuth(),(()=>{throw new Error("This account is not registered as a MatchDay admin.")})();
+  show("home");await loadTournaments();
  }catch(e){showError(e)}
 }
-function adminLogout(){localStorage.removeItem("md_admin");isAdmin=false;show("home")}
-
+async function adminLogout(){
+ await sb.auth.signOut();authUser=null;isAdmin=false;updateAdminUI();show("home");
+}
 async function loadTournaments(){
  const {data,error}=await sb.from("tournaments").select("*").order("created_at",{ascending:false}); if(error)throw error;
  $("tournamentList").innerHTML=data.length?data.map(t=>`<div class="row"><div><b>${esc(t.name)}</b><div class="muted small">${esc(t.room_code)} • ${t.match_count||1} matches • ${t.status}</div></div><button class="secondary joinRoom" data-room="${esc(t.room_code)}">Join</button></div>`).join(""):'<div class="empty">No tournaments yet. Create your first series.</div>';
@@ -59,7 +64,7 @@ function addDraftPlayer(){
 }
 
 async function createTournament(){
- try{hideError();if(!isAdmin)throw new Error("Admin login required to create a tournament.");const name=$("tName").value.trim()||"Cricket Series", n=+$("teamCount").value||2, mc=+$("matchCount").value||1;
+ try{hideError();await refreshAuth();if(!isAdmin)throw new Error("Admin login required.");const name=$("tName").value.trim()||"Cricket Series", n=+$("teamCount").value||2, mc=+$("matchCount").value||1;
  const tr=draftTeams.slice(0,n).map((x,i)=>({name:x.name.trim()||`Team ${i+1}`,captain:x.captain.trim(),draft_order:i}));
  const pn=[...new Set(draftPlayers.map(x=>x.trim()).filter(Boolean))];
  if(tr.length!==n)throw new Error(`Enter exactly ${n} teams.`);
@@ -142,7 +147,7 @@ function ballState(mid,inn=1){
 function ballButtons(){return `<div class="actions">
 <button class="secondary ball" data-event="dot">Dot</button><button class="secondary ball" data-event="run" data-runs="1">1</button><button class="secondary ball" data-event="run" data-runs="2">2</button><button class="secondary ball" data-event="run" data-runs="3">3</button><button class="primary ball" data-event="four">4</button><button class="gold ball" data-event="six">6</button><button class="secondary ball" data-event="wide">Wide</button><button class="secondary ball" data-event="noball">No-ball</button><button class="secondary ball" data-event="bye">Bye</button><button class="secondary ball" data-event="legbye">Leg-bye</button><button class="danger ball" data-event="wicket">Wicket</button></div>`}
 async function addBall(eventType,runs=0){
- try{
+ try{await refreshAuth();if(!isAdmin)throw new Error("Only the admin can score matches.");
   const m=matches.find(x=>x.id===selectedMatchId);if(!m)throw new Error("Select a match.");if(m.status==="completed")throw new Error("Match is completed.");
   const rows=currentBallRows(m.id,innings), st=ballState(m.id,innings), active=players.filter(p=>p.joined);
   const striker=$("striker")?.value, non=$("nonStriker")?.value, bowler=$("bowler")?.value;
@@ -173,7 +178,7 @@ function renderScorePanel(){
  $("completeMatch").onclick=completeCurrentMatch;
 }
 async function completeCurrentMatch(){
- try{
+ try{await refreshAuth();if(!isAdmin)throw new Error("Only the admin can complete matches.");
   const m=matches.find(x=>x.id===selectedMatchId);if(!m)throw new Error("Select a match.");
   const name=prompt(`Enter winner: ${team(m.team_a_id)?.name} or ${team(m.team_b_id)?.name}`);
   const wt=teams.find(t=>t.name.toLowerCase()===String(name||"").trim().toLowerCase());if(!wt)throw new Error("Winner team not recognised.");
@@ -189,9 +194,13 @@ function render(){
  $("tab-overview").innerHTML=`<div class="grid"><div class="card"><div class="muted">Matches</div><div class="stat">${done}/${matches.length}</div></div><div class="card"><div class="muted">Teams</div><div class="stat">${teams.length}</div></div><div class="card"><div class="muted">Players</div><div class="stat">${players.length}</div></div></div><div class="card"><h2>🏆 Standings</h2>${standings()}</div>`;
  $("tab-fixtures").innerHTML=`<div class="card"><h2>Fixtures</h2><div class="fixtures">${matches.map(m=>`<div class="fixture ${m.status==='completed'?'done':m.status==='live'?'live':''}"><h3>Match ${m.match_number}</h3><div>${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</div><p class="muted">${m.status}</p><b>${m.score_a_runs}/${m.score_a_wickets} (${m.score_a_overs}) — ${m.score_b_runs}/${m.score_b_wickets} (${m.score_b_overs})</b>${m.winner_team_id?`<p class="winner">🏆 ${esc(team(m.winner_team_id)?.name)}</p>`:""}</div>`).join("")}</div></div>`;
  const sel=matches.map(m=>`<option value="${m.id}">Match ${m.match_number}: ${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</option>`).join("");
- $("tab-score").innerHTML=`<div class="card"><h2>Live Ball-by-Ball Scoring</h2><div class="field"><label>Match</label><select id="matchSelect">${matches.map(m=>`<option value="${m.id}">Match ${m.match_number}: ${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</option>`).join("")}</select></div><div class="notice small">Tap each delivery. Runs, wickets and overs are calculated automatically. Batting and bowling records can be saved separately.</div></div><div id="ballScore"></div>`;
- selectedMatchId=matches[0]?.id||null;
- if(selectedMatchId){$("matchSelect").onchange=e=>{selectedMatchId=e.target.value;innings=1;renderScorePanel()};renderScorePanel();}
+ if(!isAdmin){
+   $("tab-score").innerHTML=`<div class="card"><h2>🔒 Scoring</h2><p>Live scoring is restricted to the tournament administrator.</p><p class="muted">Players and spectators can view tournament information, but only the admin can record deliveries, edit scores and complete matches.</p></div>`;
+ }else{
+   $("tab-score").innerHTML=`<div class="card"><h2>Live Ball-by-Ball Scoring</h2><div class="field"><label>Match</label><select id="matchSelect">${matches.map(m=>`<option value="${m.id}">Match ${m.match_number}: ${esc(team(m.team_a_id)?.name)} vs ${esc(team(m.team_b_id)?.name)}</option>`).join("")}</select></div><div class="notice small">Admin-only scoring. Tap each delivery. Runs, wickets and overs are calculated automatically.</div></div><div id="ballScore"></div>`;
+   selectedMatchId=matches[0]?.id||null;
+   if(selectedMatchId){$("matchSelect").onchange=e=>{selectedMatchId=e.target.value;innings=1;renderScorePanel()};renderScorePanel();}
+ }
  $("tab-players").innerHTML=`<div class="card"><h2>Players</h2>${players.map(p=>`<div class="row"><span>${esc(p.name)}${teams.some(t=>t.captain.toLowerCase()===p.name.toLowerCase())?" 👑":""}</span><span class="pill">${p.joined?"Joined":"Not joined"}</span></div>`).join("")}</div>`;
  $("tab-records").innerHTML=`<div class="card"><h2>Player Records</h2><table class="table"><thead><tr><th>Player</th><th>Runs</th><th>4s</th><th>6s</th><th>Wkts</th></tr></thead><tbody>${recordsRows()}</tbody></table></div>`;
  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
@@ -218,4 +227,5 @@ $("addPlayerBtn").onclick=addDraftPlayer;
 $("playerAddInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addDraftPlayer()}};
 $("loginBtn").onclick=adminLogin;$("guestBtn").onclick=()=>{hideError();show("home")};
 $("logoutBtn").onclick=adminLogout;$("cancelCreate").onclick=()=>show("home");$("createBtn").onclick=createTournament;$("joinBtn").onclick=join;$("startBtn").onclick=start;$("homeBtn").onclick=async()=>{history.replaceState(null,"",location.pathname);show("home");await loadTournaments()};$("shareBtn").onclick=()=>navigator.clipboard.writeText(location.href);
-(async()=>{try{const q=new URLSearchParams(location.search);room=q.get("room");if(room){await loadRoom();openJoin(room)}else{show("home");await loadTournaments()}}catch(e){showError(e)}})();
+sb.auth.onAuthStateChange(async (_event, session)=>{authUser=session?.user||null;await refreshAuth()});
+(async()=>{try{await refreshAuth();const q=new URLSearchParams(location.search);room=q.get("room");if(room){await loadRoom();openJoin(room)}else{show("home");await loadTournaments()}}catch(e){showError(e)}})();
