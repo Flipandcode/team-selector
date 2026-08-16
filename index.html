@@ -14,10 +14,10 @@
 
 <section id="login" class="hidden">
  <div class="hero">
-  <h1>Welcome to MatchDay</h1>
-  <p class="muted">Admin login is required to create and manage tournaments. Players and captains only select their name when joining a tournament.</p>
+  <h1>MatchDay Admin</h1>
+  <p class="muted">Sign in with the administrator account created in Supabase Authentication. Players and captains never need to log in.</p>
   <div class="card">
-   <div class="field"><label>Admin username</label><input id="adminUser" autocomplete="username" placeholder="Admin username"></div>
+   <div class="field"><label>Admin email</label><input id="adminUser" autocomplete="username" placeholder="Admin email"></div>
    <div class="field"><label>Password</label><input id="adminPass" type="password" autocomplete="current-password" placeholder="Password"></div>
    <div class="actions"><button id="loginBtn" class="primary">Admin Login</button><button id="guestBtn" class="ghost">Continue as Player</button></div>
   </div>
@@ -28,7 +28,7 @@
   <div class="hero">
     <h1>Cricket, organised.</h1>
     <p class="muted">Create a tournament, invite your players, build fixtures, run live scorecards and keep every batting and bowling record in one place.</p>
-    <div class="actions"><button id="newBtn" class="primary">Create Tournament</button><button id="logoutBtn" class="ghost hidden">Admin Logout</button></div>
+    <div class="actions"><button id="newBtn" class="primary">Create Tournament</button><span id="adminStatus" class="muted small"></span><button id="logoutBtn" class="ghost hidden">Admin Logout</button></div>
   </div>
   <div class="card"><h2>🏏 Tournaments</h2><div id="tournamentList"></div></div>
 </section>
