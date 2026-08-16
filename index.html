@@ -5,18 +5,30 @@
 <title>MatchDay</title>
 <style>
 :root{--bg:#07111f;--card:#0f1d31;--card2:#14253d;--line:#263b58;--text:#f4f7fb;--muted:#9eb0c8;--accent:#36d399;--accent2:#38bdf8;--danger:#fb7185;--gold:#fbbf24}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#07111f,#0a1628 50%,#07111f);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}button,input,select,textarea{font:inherit}button{border:0;border-radius:10px;padding:11px 15px;font-weight:800;cursor:pointer}.primary{background:var(--accent);color:#042014}.secondary{background:#223652;color:#fff}.ghost{background:transparent;border:1px solid var(--line);color:#dce7f4}.danger{background:var(--danger);color:#2b0710}.gold{background:var(--gold);color:#251800}.hidden{display:none!important}.wrap{max-width:1120px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.brand{font-size:28px;font-weight:900;letter-spacing:-1px}.brand span{color:var(--accent)}.muted{color:var(--muted)}.card{background:rgba(15,29,49,.94);border:1px solid var(--line);border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 10px 30px #0002}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.teams,.fixtures,.score-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.team,.fixture,.scorecard{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px}.fixture.done{border-color:#27664d}.fixture.live{border-color:var(--accent2)}.fixture h3,.team h3{margin:0 0 6px}.hero{padding:26px;background:linear-gradient(135deg,#10243b,#102c31);border:1px solid #28506a;border-radius:22px}.hero h1{font-size:38px;margin:0 0 5px}.hero p{max-width:720px}.field{margin:10px 0}.field label{display:block;color:#c5d3e5;font-size:13px;font-weight:800;margin-bottom:5px}input,select,textarea{width:100%;background:#091626;color:#fff;border:1px solid #304765;border-radius:10px;padding:11px;outline:none}textarea{min-height:120px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.tabs button.active{background:var(--accent2);color:#03121e}.stat{font-size:26px;font-weight:900}.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #263b5844}.row:last-child{border-bottom:0}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#203651;color:#c9d9ea;font-size:12px;font-weight:800}.ok{color:var(--accent)}.winner{color:var(--gold);font-weight:900}.error{background:#401923;border:1px solid #8d3546;color:#ffd9df;padding:11px;border-radius:10px;margin:10px 0}.notice{background:#102d37;border:1px solid #275969;padding:11px;border-radius:10px}.small{font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:9px;border-bottom:1px solid var(--line);text-align:left}.table th{color:#b8c8dc;font-size:12px}.empty{text-align:center;padding:30px;color:var(--muted)}@media(max-width:600px){.wrap{padding:10px}.hero h1{font-size:30px}.top{align-items:flex-start}.brand{font-size:24px}}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#07111f,#0a1628 50%,#07111f);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}button,input,select,textarea{font:inherit}button{border:0;border-radius:10px;padding:11px 15px;font-weight:800;cursor:pointer}.primary{background:var(--accent);color:#042014}.secondary{background:#223652;color:#fff}.ghost{background:transparent;border:1px solid var(--line);color:#dce7f4}.danger{background:var(--danger);color:#2b0710}.gold{background:var(--gold);color:#251800}.hidden{display:none!important}.wrap{max-width:1120px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.brand{font-size:28px;font-weight:900;letter-spacing:-1px}.brand span{color:var(--accent)}.muted{color:var(--muted)}.card{background:rgba(15,29,49,.94);border:1px solid var(--line);border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 10px 30px #0002}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.teams,.fixtures,.score-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.team,.fixture,.scorecard{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px}.fixture.done{border-color:#27664d}.fixture.live{border-color:var(--accent2)}.fixture h3,.team h3{margin:0 0 6px}.hero{padding:26px;background:linear-gradient(135deg,#10243b,#102c31);border:1px solid #28506a;border-radius:22px}.hero h1{font-size:38px;margin:0 0 5px}.hero p{max-width:720px}.field{margin:10px 0}.field label{display:block;color:#c5d3e5;font-size:13px;font-weight:800;margin-bottom:5px}input,select,textarea{width:100%;background:#091626;color:#fff;border:1px solid #304765;border-radius:10px;padding:11px;outline:none}textarea{min-height:120px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.tabs button.active{background:var(--accent2);color:#03121e}.stat{font-size:26px;font-weight:900}.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #263b5844}.row:last-child{border-bottom:0}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#203651;color:#c9d9ea;font-size:12px;font-weight:800}.ok{color:var(--accent)}.winner{color:var(--gold);font-weight:900}.error{background:#401923;border:1px solid #8d3546;color:#ffd9df;padding:11px;border-radius:10px;margin:10px 0}.notice{background:#102d37;border:1px solid #275969;padding:11px;border-radius:10px}.small{font-size:13px}.team-name,.team-captain{min-height:42px}.actions{display:flex;gap:8px;flex-wrap:wrap}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:9px;border-bottom:1px solid var(--line);text-align:left}.table th{color:#b8c8dc;font-size:12px}.empty{text-align:center;padding:30px;color:var(--muted)}@media(max-width:600px){.wrap{padding:10px}.hero h1{font-size:30px}.top{align-items:flex-start}.brand{font-size:24px}}
 </style>
 </head>
 <body><div class="wrap">
 <div class="top"><div class="brand">Match<span>Day</span></div><button id="homeBtn" class="ghost">Home</button></div>
 <div id="error" class="error hidden"></div>
 
+<section id="login" class="hidden">
+ <div class="hero">
+  <h1>Welcome to MatchDay</h1>
+  <p class="muted">Admin login is required to create and manage tournaments. Players and captains only select their name when joining a tournament.</p>
+  <div class="card">
+   <div class="field"><label>Admin username</label><input id="adminUser" autocomplete="username" placeholder="Admin username"></div>
+   <div class="field"><label>Password</label><input id="adminPass" type="password" autocomplete="current-password" placeholder="Password"></div>
+   <div class="actions"><button id="loginBtn" class="primary">Admin Login</button><button id="guestBtn" class="ghost">Continue as Player</button></div>
+  </div>
+ </div>
+</section>
+
 <section id="home">
   <div class="hero">
     <h1>Cricket, organised.</h1>
     <p class="muted">Create a tournament, invite your players, build fixtures, run live scorecards and keep every batting and bowling record in one place.</p>
-    <div class="actions"><button id="newBtn" class="primary">Create Tournament</button></div>
+    <div class="actions"><button id="newBtn" class="primary">Create Tournament</button><button id="logoutBtn" class="ghost hidden">Admin Logout</button></div>
   </div>
   <div class="card"><h2>🏏 Tournaments</h2><div id="tournamentList"></div></div>
 </section>
@@ -28,15 +40,18 @@
    <div class="field"><label>Number of teams</label><input id="teamCount" type="number" min="2" max="20" value="2"></div>
    <div class="field"><label>Number of matches</label><input id="matchCount" type="number" min="1" max="200" value="7"></div>
   </div>
-  <div class="field"><label>Teams — Team Name | Captain</label><textarea id="teamsInput" placeholder="Team Suraj | Suraj&#10;Team Manish | Manish"></textarea></div>
-  <div class="field"><label>Players — one per line</label><textarea id="playersInput" placeholder="Suraj&#10;Manish&#10;Aditya&#10;Shubham"></textarea></div>
+  <div class="card"><h3>👥 Teams & Captains</h3><p class="muted small">Enter each team name and select its captain from that team's player list.</p><div id="teamFields"></div></div>
+  <div class="card"><h3>🏏 Player List</h3><p class="muted small">Add players one at a time. Captains will be selected from these names.</p>
+    <div class="actions"><input id="playerAddInput" placeholder="Enter player name" style="flex:1;min-width:180px"><button id="addPlayerBtn" class="secondary">+ Add Player</button></div>
+    <div id="playerChips" style="margin-top:12px"></div>
+  </div>
   <div class="actions"><button id="createBtn" class="primary">Create & Build Fixtures</button><button id="cancelCreate" class="ghost">Cancel</button></div>
  </div>
 </section>
 
 <section id="join" class="hidden">
  <div class="card"><h2 id="joinTitle">Join Tournament</h2><p id="joinMeta" class="muted"></p>
-  <div class="field"><label>Select your name</label><select id="joinName"></select></div>
+  <div class="field"><label>Select your name</label><select id="joinName"></select></div><div id="captainHint" class="notice small"></div>
   <button id="joinBtn" class="primary">Join Tournament</button>
  </div>
 </section>
