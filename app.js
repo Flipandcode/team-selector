@@ -83,14 +83,18 @@ async function loadTournaments(){
 
 function renderCreateForm(){
  const count=Math.max(2,Math.min(20,Number($("teamCount").value)||2));
- while(draftTeams.length<count)draftTeams.push({name:`Team ${draftTeams.length+1}`,captain:""});
+ while(draftTeams.length<count)draftTeams.push({name:`Team ${draftTeams.length+1}`,captain:"",pin:""});
  if(draftTeams.length>count)draftTeams=draftTeams.slice(0,count);
+ draftTeams.forEach(t=>{if(typeof t.pin!=="string")t.pin=""});
  $("teamFields").innerHTML=draftTeams.map((t,i)=>`<div class="card" style="margin:8px 0"><div class="grid">
   <div class="field"><label>Team ${i+1} name</label><input class="team-name" data-i="${i}" value="${esc(t.name)}" placeholder="Team name"></div>
   <div class="field"><label>Team ${i+1} captain</label><select class="team-captain" data-i="${i}" ${draftPlayers.length?"":"disabled"}><option value="">${draftPlayers.length?"Select captain from player list":"Add players first"}</option>${draftPlayers.map(p=>`<option value="${esc(p)}" ${p===t.captain?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
+  <div class="field"><label>🔐 Team ${i+1} captain PIN</label><div class="actions"><input class="team-pin" data-i="${i}" value="${esc(t.pin)}" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="off" placeholder="4-digit PIN" style="flex:1"><button type="button" class="secondary generate-team-pin" data-i="${i}">Generate</button></div><div class="muted small" style="margin-top:5px">Share this PIN privately with the captain.</div></div>
  </div></div>`).join("");
  document.querySelectorAll(".team-name").forEach(x=>x.oninput=()=>{draftTeams[+x.dataset.i].name=x.value});
  document.querySelectorAll(".team-captain").forEach(x=>x.onchange=()=>{draftTeams[+x.dataset.i].captain=x.value});
+ document.querySelectorAll(".team-pin").forEach(x=>x.oninput=()=>{x.value=x.value.replace(/\D/g,"").slice(0,4);draftTeams[+x.dataset.i].pin=x.value});
+ document.querySelectorAll(".generate-team-pin").forEach(x=>x.onclick=()=>{draftTeams[+x.dataset.i].pin=randomPin();renderCreateForm()});
  $("playerChips").innerHTML=draftPlayers.length?draftPlayers.map((p,i)=>`<span class="pill" style="margin:4px;display:inline-flex;gap:7px;align-items:center">${esc(p)} <button type="button" class="remove-player" data-i="${i}" style="padding:2px 6px;border-radius:8px;background:#3a2130;color:#fff">×</button></span>`).join(""):'<span class="muted">No players added yet.</span>';
  document.querySelectorAll(".remove-player").forEach(x=>x.onclick=()=>{draftPlayers.splice(+x.dataset.i,1);draftTeams.forEach(t=>{if(!draftPlayers.includes(t.captain))t.captain=""});renderCreateForm()});
 }
@@ -111,9 +115,13 @@ async function createTournament(){
  if(tr.some(x=>!x.captain))throw new Error("Select a captain for every team.");
  if(tr.some(x=>!pn.some(p=>p.toLowerCase()===x.captain.toLowerCase())))throw new Error("Every captain must be selected from the player list.");
  if(new Set(tr.map(x=>x.captain.toLowerCase())).size!==tr.length)throw new Error("Each team must have a different captain.");
+ const pins=draftTeams.slice(0,n).map(x=>String(x.pin||""));
+ if(pins.some(pin=>!/^[0-9]{4}$/.test(pin)))throw new Error("Enter or generate a valid 4-digit PIN for every team captain.");
  room=crypto.randomUUID().replaceAll("-","").slice(0,10).toUpperCase();
  const {data:t,error:te}=await sb.from("tournaments").insert({name,room_code:room,match_count:mc,status:"drafting"}).select().single();if(te)throw te;tournament=t;
  const {data:td,error:tee}=await sb.from("teams").insert(tr.map(x=>({...x,tournament_id:t.id}))).select();if(tee)throw tee;teams=td;
+ for(let i=0;i<teams.length;i++){const {error:pinError}=await sb.rpc("set_captain_pin",{p_team_id:teams[i].id,p_pin:pins[i]});if(pinError)throw pinError;}
+ captainPins=Object.fromEntries(teams.map((tm,i)=>[tm.id,pins[i]]));
  const {data:pd,error:pe}=await sb.from("players").insert(pn.map(name=>({tournament_id:t.id,name,joined:false}))).select();if(pe)throw pe;players=pd;
  await buildFixtures(); history.replaceState(null,"",`?room=${room}`); me=tr[0].captain; localStorage.setItem("md:"+room,me); await loadRoom();show("room");
  }catch(e){showError(e)}
