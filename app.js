@@ -21,21 +21,41 @@ function updateAdminUI(){
  const logged=!!authUser&&isAdmin;
  $("newBtn")?.classList.toggle("hidden",!logged);
  $("logoutBtn")?.classList.toggle("hidden",!logged);
+ $("homeLoginBtn")?.classList.toggle("hidden",logged);
+ $("adminLoginNav")?.classList.toggle("hidden",logged);
  $("adminStatus") && ($("adminStatus").textContent=logged?`Signed in as ${authUser.email}`:"");
 }
 async function adminLogin(){
  try{
-  hideError();const email=$("adminUser").value.trim(),password=$("adminPass").value;
+  hideError();
+  const email=$("adminUser").value.trim(),password=$("adminPass").value;
   if(!email||!password)throw new Error("Enter your admin email and password.");
+  const btn=$("loginBtn"); if(btn){btn.disabled=true;btn.textContent="Signing in…";}
   const {data,error}=await sb.auth.signInWithPassword({email,password});
   if(error)throw error;
-  authUser=data.user;await refreshAuth();
-  if(!isAdmin)await sb.auth.signOut(),authUser=null,await refreshAuth(),(()=>{throw new Error("This account is not registered as a MatchDay admin.")})();
-  show("home");await loadTournaments();
- }catch(e){showError(e)}
+  authUser=data.user;
+  await refreshAuth();
+  if(!isAdmin){
+    await sb.auth.signOut();
+    authUser=null;
+    await refreshAuth();
+    throw new Error("This Supabase account is not registered as a MatchDay admin.");
+  }
+  show("home");
+  await loadTournaments();
+ }catch(e){
+  showError(e);
+ }finally{
+  const btn=$("loginBtn"); if(btn){btn.disabled=false;btn.textContent="Admin Login";}
+ }
 }
 async function adminLogout(){
  await sb.auth.signOut();authUser=null;isAdmin=false;updateAdminUI();show("home");
+}
+function openAdminLogin(){
+ hideError();
+ show("login");
+ $("adminUser")?.focus();
 }
 async function loadTournaments(){
  const {data,error}=await sb.from("tournaments").select("*").order("created_at",{ascending:false}); if(error)throw error;
@@ -225,7 +245,10 @@ $("newBtn").onclick=()=>{hideError();if(!isAdmin){show("login");return}draftPlay
 $("teamCount").oninput=renderCreateForm;
 $("addPlayerBtn").onclick=addDraftPlayer;
 $("playerAddInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addDraftPlayer()}};
-$("loginBtn").onclick=adminLogin;$("guestBtn").onclick=()=>{hideError();show("home")};
+$("loginBtn").onclick=adminLogin;
+$("guestBtn").onclick=()=>{hideError();show("home")};
+$("homeLoginBtn").onclick=openAdminLogin;
+$("adminLoginNav").onclick=openAdminLogin;
 $("logoutBtn").onclick=adminLogout;$("cancelCreate").onclick=()=>show("home");$("createBtn").onclick=createTournament;$("joinBtn").onclick=join;$("startBtn").onclick=start;$("homeBtn").onclick=async()=>{history.replaceState(null,"",location.pathname);show("home");await loadTournaments()};$("shareBtn").onclick=()=>navigator.clipboard.writeText(location.href);
 sb.auth.onAuthStateChange(async (_event, session)=>{authUser=session?.user||null;await refreshAuth()});
 (async()=>{try{await refreshAuth();const q=new URLSearchParams(location.search);room=q.get("room");if(room){await loadRoom();openJoin(room)}else{show("home");await loadTournaments()}}catch(e){showError(e)}})();
